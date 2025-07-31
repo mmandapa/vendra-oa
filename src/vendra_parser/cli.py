@@ -12,30 +12,49 @@ from typing import Optional
 
 from .parser import QuoteParser
 from .advanced_parser import AdvancedQuoteParser
+from .ocr_parser import OCRParser
+from .file_picker import get_pdf_via_picker
 
 
 def get_pdf_path() -> str:
-    """Prompt user to provide PDF file path."""
+    """Prompt user to provide PDF file path or use file picker."""
     while True:
-        pdf_path = input("\n📄 Please enter the path to your PDF quote file: ").strip()
+        choice = input("\n📄 How would you like to select your PDF file?\n"
+                      "1. Use file picker (opens Finder)\n"
+                      "2. Enter file path manually\n"
+                      "Enter your choice (1-2): ").strip()
         
-        if not pdf_path:
-            print("❌ No file path provided. Please try again.")
-            continue
+        if choice == "1":
+            # Use file picker
+            pdf_path = get_pdf_via_picker()
+            if pdf_path:
+                return pdf_path
+            else:
+                print("❌ No file selected. Please try again.")
+                continue
+        elif choice == "2":
+            # Manual path entry
+            pdf_path = input("\n📄 Please enter the path to your PDF quote file: ").strip()
             
-        # Remove quotes if user added them
-        pdf_path = pdf_path.strip('"\'')
-        
-        if not os.path.exists(pdf_path):
-            print(f"❌ File not found: {pdf_path}")
-            print("Please check the file path and try again.")
-            continue
+            if not pdf_path:
+                print("❌ No file path provided. Please try again.")
+                continue
+                
+            # Remove quotes if user added them
+            pdf_path = pdf_path.strip('"\'')
             
-        if not pdf_path.lower().endswith('.pdf'):
-            print("❌ File must be a PDF (.pdf extension)")
-            continue
-            
-        return pdf_path
+            if not os.path.exists(pdf_path):
+                print(f"❌ File not found: {pdf_path}")
+                print("Please check the file path and try again.")
+                continue
+                
+            if not pdf_path.lower().endswith('.pdf'):
+                print("❌ File must be a PDF (.pdf extension)")
+                continue
+                
+            return pdf_path
+        else:
+            print("❌ Invalid choice. Please enter 1 or 2.")
 
 
 def get_output_preference() -> Optional[str]:
@@ -60,19 +79,22 @@ def get_output_preference() -> Optional[str]:
 
 
 def get_parser_choice() -> str:
-    """Ask user to choose between basic and advanced parser."""
+    """Ask user to choose between parser types."""
     while True:
         choice = input("\n🔧 Choose your parser:\n"
                       "1. Basic Parser (faster, good for standard formats)\n"
                       "2. Advanced Parser (more thorough, handles complex formats)\n"
-                      "Enter your choice (1-2): ").strip()
+                      "3. OCR Parser (uses image recognition for difficult PDFs)\n"
+                      "Enter your choice (1-3): ").strip()
         
         if choice == "1":
             return "basic"
         elif choice == "2":
             return "advanced"
+        elif choice == "3":
+            return "ocr"
         else:
-            print("❌ Invalid choice. Please enter 1 or 2.")
+            print("❌ Invalid choice. Please enter 1, 2, or 3.")
 
 
 @click.group(invoke_without_command=True)
@@ -112,8 +134,12 @@ def interactive_mode():
         
         if parser_type == "basic":
             parser = QuoteParser()
-        else:
+        elif parser_type == "advanced":
             parser = AdvancedQuoteParser()
+        elif parser_type == "ocr":
+            parser = OCRParser()
+        else:
+            parser = QuoteParser()  # Default fallback
         
         # Parse and get results
         result = parser.parse_quote_to_json(pdf_path, output_file)
@@ -195,6 +221,29 @@ def parse_advanced(pdf_path: str, output: Optional[str], verbose: bool):
             print(result)
         
         click.echo("Advanced quote parsing completed successfully!")
+        
+    except Exception as e:
+        click.echo(f"Error parsing quote: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command()
+@click.argument('pdf_path', type=click.Path(exists=True))
+@click.option('--output', '-o', type=click.Path(), help='Output JSON file path')
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
+def parse_ocr(pdf_path: str, output: Optional[str], verbose: bool):
+    """Parse supplier quote PDF using OCR for image-based text extraction."""
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    try:
+        parser = OCRParser()
+        result = parser.parse_quote_to_json(pdf_path, output)
+        
+        if not output:
+            print(result)
+        
+        click.echo("OCR quote parsing completed successfully!")
         
     except Exception as e:
         click.echo(f"Error parsing quote: {e}", err=True)

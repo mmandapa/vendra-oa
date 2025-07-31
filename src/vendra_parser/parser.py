@@ -9,10 +9,10 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 from decimal import Decimal, InvalidOperation
-import pdfplumber
 import click
 
 from .models import LineItem, QuoteGroup
+from .pdf_extractor import extract_pdf_text, extract_pdf_tables
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,15 +51,12 @@ class QuoteParser:
         ]
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
-        """Extract text content from PDF file."""
+        """Extract text content from PDF file using enhanced extractor."""
         try:
-            with pdfplumber.open(pdf_path) as pdf:
-                text = ""
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
-                return text
+            text = extract_pdf_text(pdf_path)
+            if not text:
+                logger.warning("No text extracted from PDF")
+            return text
         except Exception as e:
             logger.error(f"Error extracting text from PDF: {e}")
             raise
