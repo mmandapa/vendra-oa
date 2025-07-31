@@ -206,9 +206,23 @@ class DomainAwareParser:
         # If no main items, create a single group with all items
         elif line_items:
             total_price = self._calculate_total(line_items)
+            
+            # For manufacturing quotes, the quantity is typically the sum of all line item quantities
+            # But we need to be careful - if these are different products, we might want to show them separately
+            # For now, let's use the most common quantity or default to 1
+            quantities = [item.quantity for item in line_items if Decimal(item.quantity) > 0]
+            if quantities:
+                # Use the most common quantity
+                main_quantity = max(set(quantities), key=quantities.count)
+            else:
+                main_quantity = "1"
+            
+            # Calculate unit price as total price divided by main quantity
+            unit_price = str(round(Decimal(total_price) / Decimal(main_quantity), 2)) if Decimal(main_quantity) > 0 else "0"
+            
             quote_group = {
-                "quantity": "1",
-                "unitPrice": total_price,
+                "quantity": main_quantity,
+                "unitPrice": unit_price,
                 "totalPrice": total_price,
                 "lineItems": [
                     {

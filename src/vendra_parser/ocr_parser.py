@@ -37,49 +37,73 @@ class DynamicOCRParser:
             Extracted text string
         """
         try:
-            # Convert PDF to images and extract text using Tesseract
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Convert PDF to images using pdftoppm
-                image_path = os.path.join(temp_dir, "page")
-                subprocess.run([
-                    'pdftoppm', 
-                    '-png', 
-                    '-r', '300',  # High resolution for better OCR
-                    pdf_path, 
-                    image_path
-                ], check=True)
+            # Try to use external tools first
+            return self._extract_with_external_tools(pdf_path)
+        except Exception as e:
+            logger.warning(f"External OCR tools failed: {e}")
+            logger.info("Falling back to PDF text extraction")
+            # Fall back to direct PDF text extraction
+            return self._extract_text_directly(pdf_path)
+    
+    def _extract_with_external_tools(self, pdf_path: str) -> str:
+        """Extract text using external OCR tools."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Convert PDF to images using pdftoppm
+            image_path = os.path.join(temp_dir, "page")
+            subprocess.run([
+                'pdftoppm', 
+                '-png', 
+                '-r', '300',  # High resolution for better OCR
+                pdf_path, 
+                image_path
+            ], check=True)
+            
+            # Extract text from each image using Tesseract
+            all_text = ""
+            page_num = 1
+            
+            while True:
+                image_file = f"{image_path}-{page_num}.png"
+                if not os.path.exists(image_file):
+                    break
                 
-                # Extract text from each image using Tesseract
-                all_text = ""
-                page_num = 1
+                # Run Tesseract OCR
+                result = subprocess.run([
+                    'tesseract',
+                    image_file,
+                    'stdout',
+                    '--psm', '6'  # Assume uniform block of text
+                ], capture_output=True, text=True, check=True)
                 
-                while True:
-                    image_file = f"{image_path}-{page_num}.png"
-                    if not os.path.exists(image_file):
-                        break
-                    
-                    # Run Tesseract OCR
-                    result = subprocess.run([
-                        'tesseract',
-                        image_file,
-                        'stdout',
-                        '--psm', '6'  # Assume uniform block of text
-                    ], capture_output=True, text=True, check=True)
-                    
-                    page_text = result.stdout.strip()
-                    if page_text:
-                        all_text += f"\n=== PAGE {page_num} ===\n{page_text}\n"
-                    
-                    page_num += 1
+                page_text = result.stdout.strip()
+                if page_text:
+                    all_text += f"\n=== PAGE {page_num} ===\n{page_text}\n"
                 
-                logger.info(f"OCR extracted {len(all_text)} characters from PDF")
-                return all_text
-                
-        except subprocess.CalledProcessError as e:
-            logger.error(f"OCR extraction failed: {e}")
+                page_num += 1
+            
+            logger.info(f"OCR extracted {len(all_text)} characters from PDF")
+            return all_text
+    
+    def _extract_text_directly(self, pdf_path: str) -> str:
+        """Extract text directly from PDF without OCR."""
+        try:
+            import pdfplumber
+            
+            all_text = ""
+            with pdfplumber.open(pdf_path) as pdf:
+                for page_num, page in enumerate(pdf.pages, 1):
+                    text = page.extract_text()
+                    if text:
+                        all_text += f"\n=== PAGE {page_num} ===\n{text}\n"
+            
+            logger.info(f"Direct extraction got {len(all_text)} characters from PDF")
+            return all_text
+            
+        except ImportError:
+            logger.error("pdfplumber not available for direct text extraction")
             raise
         except Exception as e:
-            logger.error(f"Error during OCR extraction: {e}")
+            logger.error(f"Direct text extraction failed: {e}")
             raise
     
     def normalize_price(self, price_str: str) -> str:
@@ -123,7 +147,22 @@ class DynamicOCRParser:
                 continue
             
             # Skip obvious non-line-item lines
-            if any(skip_word in line.lower() for skip_word in ['phone', 'fax', 'total', 'estimate', 'date', 'name', 'address']):
+            skip_keywords = [
+                'phone', 'fax', 'total', 'estimate', 'date', 'name', 'address',
+                'suite', 'street', 'blvd', 'avenue', 'road', 'drive', 'lane',
+                'ca ', 'california', 'zip', 'postal', 'generated', 'page',
+                'receipt', 'order', 'drawings', 'specifications', 'specialists',
+                'semiconductor', 'tooling', 'santa clara', 'san francisco'
+            ]
+            if any(skip_word in line.lower() for skip_word in skip_keywords):
+                continue
+            
+            # Skip lines that are clearly addresses or contact info
+            if re.search(r'\b\d{5}\b', line):  # 5-digit zip codes
+                continue
+            if re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', line):  # Phone numbers
+                continue
+            if re.search(r'\b[A-Z]{2}\s+\d{5}\b', line):  # State + zip pattern
                 continue
             
             # Find all numbers in the line
@@ -153,10 +192,92 @@ class DynamicOCRParser:
         Returns None if parsing fails.
         """
         # Skip lines that are clearly not line items
-        if any(skip_word in line.lower() for skip_word in ['san clemente', 'san francisco', 'phone', 'fax', 'estimate', 'date', 'name', 'address', 'suite', 'street', 'vtn manufacturing', 'little orchard', '3rd street', 'quote', 'outa']):
+        skip_keywords = [
+            'san clemente', 'san francisco', 'phone', 'fax', 'estimate', 'date', 'name', 'address', 
+            'suite', 'street', 'vtn manufacturing', 'little orchard', '3rd street', 'quote', 'outa',
+            'specialists', 'semiconductor', 'tooling', 'santa clara', 'california', 'generated', 'page',
+            'receipt', 'order', 'drawings', 'specifications', 'blvd', 'avenue', 'road', 'drive', 'lane',
+            'zip', 'postal'
+        ]
+        if any(skip_word in line.lower() for skip_word in skip_keywords):
             return None
         
-        # Strategy 1: Look for pattern: quantity + description + rate + total
+        # Skip lines with zip codes, phone numbers, or other contact info
+        if re.search(r'\b\d{5}\b', line):  # 5-digit zip codes
+            return None
+        if re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', line):  # Phone numbers
+            return None
+        if re.search(r'\b[A-Z]{2}\s+\d{5}\b', line):  # State + zip pattern
+            return None
+        if re.search(r'\b[A-Z]{2}\s+\d{3}\s+\d{4}\b', line):  # State + area code + phone
+            return None
+        
+        # Strategy 1: Look for pattern: description + quantity + rate + total
+        # This is more common in manufacturing quotes
+        if len(numbers) >= 3:
+            # Take the last 3 numbers (most likely to be qty, rate, total)
+            last_three = numbers[-3:]
+            
+            # Find the position of the first of these numbers
+            first_num_pos = line.find(last_three[0])
+            if first_num_pos > 0:
+                description = line[:first_num_pos].strip()
+                description = self._clean_description(description)
+                
+                if self._is_valid_product_description(description):
+                    try:
+                        # Check if the first number looks like a quantity (small integer)
+                        first_num = int(last_three[0])
+                        if 1 <= first_num <= 100:  # Reasonable quantity range
+                            quantity = str(first_num)
+                            unit_price = self.normalize_price(last_three[1])
+                            cost = self.normalize_price(last_three[2])
+                            
+                            if len(description) > 3:
+                                description = self._final_clean_description(description)
+                                return LineItem(
+                                    description=description,
+                                    quantity=quantity,
+                                    unit_price=unit_price,
+                                    cost=cost
+                                )
+                    except (ValueError, InvalidOperation):
+                        pass
+        
+        # Strategy 1.5: Look for pattern: part_number + description + quantity + rate + total
+        # Handle cases where the description starts with a number (part number)
+        if len(numbers) >= 4:
+            # Look for pattern: number + text + number + price + total
+            # This handles: "3 ESTOP_BODY-GEN2_4 6 $395.00 $2,370.00"
+            
+            # Find the position of the second number (quantity)
+            second_num = numbers[1]
+            second_num_pos = line.find(second_num)
+            
+            if second_num_pos > 0:
+                # Everything before the second number is the description (including first number)
+                description = line[:second_num_pos].strip()
+                description = self._clean_description(description)
+                
+                if self._is_valid_product_description(description):
+                    try:
+                        # The second number is the quantity
+                        quantity = str(int(second_num))
+                        unit_price = self.normalize_price(numbers[2])
+                        cost = self.normalize_price(numbers[3])
+                        
+                        if len(description) > 3 and 1 <= int(quantity) <= 100:
+                            description = self._final_clean_description(description)
+                            return LineItem(
+                                description=description,
+                                quantity=quantity,
+                                unit_price=unit_price,
+                                cost=cost
+                            )
+                    except (ValueError, InvalidOperation):
+                        pass
+        
+        # Strategy 2: Look for pattern: quantity + description + rate + total
         # Check if the line starts with a quantity (small number)
         if len(numbers) >= 3:
             first_num = numbers[0]
@@ -190,50 +311,7 @@ class DynamicOCRParser:
             except (ValueError, InvalidOperation):
                 pass
         
-        # Strategy 2: Look for pattern: description + quantity + rate + total
-        # Find the last 3 numbers in the line (most likely to be qty, rate, total)
-        if len(numbers) >= 3:
-            # Take the last 3 numbers
-            last_three = numbers[-3:]
-            
-            # Find the position of the first of these numbers
-            first_num_pos = line.find(last_three[0])
-            if first_num_pos > 0:
-                description = line[:first_num_pos].strip()
-                
-                # Clean up description
-                description = self._clean_description(description)
-                
-                # Validate this looks like a real product description
-                if self._is_valid_product_description(description):
-                    try:
-                        # Check if the first number looks like a quantity (small integer)
-                        first_num = int(last_three[0])
-                        if 1 <= first_num <= 100:  # Reasonable quantity range
-                            quantity = str(first_num)
-                            unit_price = self.normalize_price(last_three[1])
-                            cost = self.normalize_price(last_three[2])
-                        else:
-                            # Maybe the numbers are in different order
-                            quantity = "1"  # Default to 1
-                            unit_price = self.normalize_price(last_three[0])
-                            cost = self.normalize_price(last_three[1])
-                        
-                        # Validate the values make sense
-                        if (Decimal(quantity) > 0 and 
-                            len(description) > 3):
-                            
-                            # Clean up the description further
-                            description = self._final_clean_description(description)
-                            
-                            return LineItem(
-                                description=description,
-                                quantity=quantity,
-                                unit_price=unit_price,
-                                cost=cost
-                            )
-                    except (ValueError, InvalidOperation):
-                        pass
+
         
         # Strategy 3: Look for pattern: description + rate + total (quantity = 1)
         if len(numbers) >= 2:
@@ -287,13 +365,23 @@ class DynamicOCRParser:
         non_product_keywords = [
             'san clemente', 'san francisco', 'phone', 'fax', 'estimate', 'date', 'name', 'address',
             'thirty-two', 'machine inc', 'calle', 'pintoresco', 'suite', 'street', 'vtn manufacturing',
-            'little orchard', '3rd street', 'quote', 'outa'
+            'little orchard', '3rd street', 'quote', 'outa', 'specialists', 'semiconductor', 'tooling',
+            'santa clara', 'california', 'generated', 'page', 'receipt', 'order', 'drawings', 'specifications',
+            'blvd', 'avenue', 'road', 'drive', 'lane', 'zip', 'postal'
         ]
         
         has_non_product_keyword = any(keyword in desc_lower for keyword in non_product_keywords)
         
         # If it contains non-product keywords, reject it
         if has_non_product_keyword:
+            return False
+        
+        # Skip descriptions that are just addresses or contact info
+        if re.search(r'\b\d{5}\b', description):  # Contains zip codes
+            return False
+        if re.search(r'\b[A-Z]{2}\s+\d{5}\b', description):  # State + zip pattern
+            return False
+        if re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', description):  # Phone numbers
             return False
         
         # Must be reasonably long and contain some descriptive text
@@ -304,6 +392,14 @@ class DynamicOCRParser:
         
         # Must contain at least one word that's not just numbers
         has_descriptive_word = any(not word.isdigit() and len(word) > 1 for word in words)
+        
+        # Must not be just a single letter or very short description
+        if len(description.strip()) < 5:
+            return False
+        
+        # Must not start with common non-product prefixes
+        if desc_lower.startswith(('to:', 'from:', 'attn:', 're:', 'subject:', 'date:', 'page:')):
+            return False
         
         return has_descriptive_word
     
