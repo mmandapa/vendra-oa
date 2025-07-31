@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 import json
 
 from .models import LineItem, QuoteGroup
+from .domain_parser import parse_with_domain_knowledge
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,45 @@ class DynamicOCRParser:
         Try to parse a line as a line item using multiple strategies.
         Returns None if parsing fails.
         """
-        # Strategy 1: Look for pattern: description + quantity + rate + total
+        # Skip lines that are clearly not line items
+        if any(skip_word in line.lower() for skip_word in ['san clemente', 'san francisco', 'phone', 'fax', 'estimate', 'date', 'name', 'address', 'suite', 'street', 'vtn manufacturing', 'little orchard', '3rd street', 'quote', 'outa']):
+            return None
+        
+        # Strategy 1: Look for pattern: quantity + description + rate + total
+        # Check if the line starts with a quantity (small number)
+        if len(numbers) >= 3:
+            first_num = numbers[0]
+            try:
+                first_num_int = int(first_num)
+                if 1 <= first_num_int <= 100:  # Reasonable quantity range
+                    # This might be: quantity + description + rate + total
+                    # Find where the description starts (after the first number)
+                    first_num_pos = line.find(first_num)
+                    if first_num_pos == 0:  # Number is at the start
+                        # Find the position of the second number (rate)
+                        second_num = numbers[1]
+                        second_num_pos = line.find(second_num, first_num_pos + len(first_num))
+                        if second_num_pos > 0:
+                            description = line[first_num_pos + len(first_num):second_num_pos].strip()
+                            description = self._clean_description(description)
+                            
+                            if self._is_valid_product_description(description):
+                                quantity = str(first_num_int)
+                                unit_price = self.normalize_price(second_num)
+                                cost = self.normalize_price(numbers[2])
+                                
+                                if len(description) > 3:
+                                    description = self._final_clean_description(description)
+                                    return LineItem(
+                                        description=description,
+                                        quantity=quantity,
+                                        unit_price=unit_price,
+                                        cost=cost
+                                    )
+            except (ValueError, InvalidOperation):
+                pass
+        
+        # Strategy 2: Look for pattern: description + quantity + rate + total
         # Find the last 3 numbers in the line (most likely to be qty, rate, total)
         if len(numbers) >= 3:
             # Take the last 3 numbers
@@ -165,15 +204,27 @@ class DynamicOCRParser:
                 # Clean up description
                 description = self._clean_description(description)
                 
-                if len(description) > 2:
+                # Validate this looks like a real product description
+                if self._is_valid_product_description(description):
                     try:
-                        quantity = self.normalize_price(last_three[0])
-                        unit_price = self.normalize_price(last_three[1])
-                        cost = self.normalize_price(last_three[2])
+                        # Check if the first number looks like a quantity (small integer)
+                        first_num = int(last_three[0])
+                        if 1 <= first_num <= 100:  # Reasonable quantity range
+                            quantity = str(first_num)
+                            unit_price = self.normalize_price(last_three[1])
+                            cost = self.normalize_price(last_three[2])
+                        else:
+                            # Maybe the numbers are in different order
+                            quantity = "1"  # Default to 1
+                            unit_price = self.normalize_price(last_three[0])
+                            cost = self.normalize_price(last_three[1])
                         
                         # Validate the values make sense
                         if (Decimal(quantity) > 0 and 
-                            len(description) > 2):
+                            len(description) > 3):
+                            
+                            # Clean up the description further
+                            description = self._final_clean_description(description)
                             
                             return LineItem(
                                 description=description,
@@ -184,7 +235,7 @@ class DynamicOCRParser:
                     except (ValueError, InvalidOperation):
                         pass
         
-        # Strategy 2: Look for pattern: description + rate + total (quantity = 1)
+        # Strategy 3: Look for pattern: description + rate + total (quantity = 1)
         if len(numbers) >= 2:
             # Take the last 2 numbers
             last_two = numbers[-2:]
@@ -195,13 +246,17 @@ class DynamicOCRParser:
                 description = line[:first_num_pos].strip()
                 description = self._clean_description(description)
                 
-                if len(description) > 2:
+                # Validate this looks like a real product description
+                if self._is_valid_product_description(description):
                     try:
                         quantity = "1"  # Assume quantity of 1
                         unit_price = self.normalize_price(last_two[0])
                         cost = self.normalize_price(last_two[1])
                         
-                        if len(description) > 2:
+                        if len(description) > 3:
+                            # Clean up the description further
+                            description = self._final_clean_description(description)
+                            
                             return LineItem(
                                 description=description,
                                 quantity=quantity,
@@ -219,6 +274,49 @@ class DynamicOCRParser:
         description = re.sub(r'[^\w\s\-_:]', ' ', description)
         # Remove extra spaces
         description = re.sub(r'\s+', ' ', description).strip()
+        return description
+    
+    def _is_valid_product_description(self, description: str) -> bool:
+        """Check if a description looks like a valid product description."""
+        if not description or len(description) < 3:
+            return False
+        
+        desc_lower = description.lower()
+        
+        # Must not contain non-product keywords (addresses, company info, etc.)
+        non_product_keywords = [
+            'san clemente', 'san francisco', 'phone', 'fax', 'estimate', 'date', 'name', 'address',
+            'thirty-two', 'machine inc', 'calle', 'pintoresco', 'suite', 'street', 'vtn manufacturing',
+            'little orchard', '3rd street', 'quote', 'outa'
+        ]
+        
+        has_non_product_keyword = any(keyword in desc_lower for keyword in non_product_keywords)
+        
+        # If it contains non-product keywords, reject it
+        if has_non_product_keyword:
+            return False
+        
+        # Must be reasonably long and contain some descriptive text
+        # (not just numbers or single words)
+        words = description.split()
+        if len(words) < 2:
+            return False
+        
+        # Must contain at least one word that's not just numbers
+        has_descriptive_word = any(not word.isdigit() and len(word) > 1 for word in words)
+        
+        return has_descriptive_word
+    
+    def _final_clean_description(self, description: str) -> str:
+        """Final cleanup of description to remove trailing numbers and extra text."""
+        # Remove trailing numbers and common suffixes
+        description = re.sub(r'\s+\d+\s*$', '', description)  # Remove trailing numbers
+        description = re.sub(r'\s+and\s+\d+\s*$', '', description)  # Remove "and X" at end
+        description = re.sub(r'\s+,\s*\d+\s*$', '', description)  # Remove ", X" at end
+        
+        # Remove extra spaces
+        description = re.sub(r'\s+', ' ', description).strip()
+        
         return description
     
     def discover_quantities_dynamically(self, text: str) -> List[str]:
@@ -269,70 +367,11 @@ class DynamicOCRParser:
         line_items = self.discover_line_items_dynamically(text)
         logger.info(f"Dynamically discovered {len(line_items)} line items")
         
-        # Dynamically discover quantities
-        quantities = self.discover_quantities_dynamically(text)
-        logger.info(f"Dynamically discovered quantities: {quantities}")
-        
-        # If no quantities found, assume quantity of 1
-        if not quantities:
-            quantities = ["1"]
-        
-        # If no line items found, return empty result
-        if not line_items:
-            logger.warning("No line items found in PDF")
-            return []
-        
-        # Calculate total price
-        total_price = self._calculate_total(line_items)
-        
-        # Create quote groups
-        quote_groups = []
-        for quantity in quantities:
-            # Calculate unit price for this quantity
-            unit_price = self._calculate_unit_price(total_price, quantity)
-            
-            # Create quote group
-            quote_group = {
-                "quantity": quantity,
-                "unitPrice": unit_price,
-                "totalPrice": total_price,
-                "lineItems": [
-                    {
-                        "description": item.description,
-                        "quantity": item.quantity,
-                        "unitPrice": item.unit_price,
-                        "cost": item.cost
-                    }
-                    for item in line_items
-                ]
-            }
-            
-            quote_groups.append(quote_group)
+        # Use domain-aware parsing to structure the output correctly
+        quote_groups = parse_with_domain_knowledge(line_items)
+        logger.info(f"Created {len(quote_groups)} quote groups using domain knowledge")
         
         return quote_groups
-    
-    def _calculate_total(self, line_items: List[LineItem]) -> str:
-        """Calculate total price from line items."""
-        total = Decimal('0')
-        for item in line_items:
-            try:
-                total += Decimal(item.cost)
-            except (InvalidOperation, ValueError):
-                logger.warning(f"Invalid cost value: {item.cost}")
-        
-        return str(total)
-    
-    def _calculate_unit_price(self, total_price: str, quantity: str) -> str:
-        """Calculate unit price from total price and quantity."""
-        try:
-            total = Decimal(total_price)
-            qty = Decimal(quantity)
-            if qty > 0:
-                unit_price = total / qty
-                return str(unit_price.quantize(Decimal('0.01')))
-            return "0"
-        except (InvalidOperation, ValueError, ZeroDivisionError):
-            return "0"
     
     def parse_quote_to_json(self, pdf_path: str, output_path: Optional[str] = None) -> str:
         """Parse quote and return JSON string."""

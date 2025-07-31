@@ -10,13 +10,17 @@ __description__ = "Quote parser for extracting structured data from supplier PDF
 
 from .parser import QuoteParser
 from .advanced_parser import AdvancedQuoteParser
-from .ocr_parser import OCRParser
+from .ocr_parser import OCRParser, DynamicOCRParser
+from .domain_parser import DomainAwareParser, ManufacturingAbbreviationHandler
 from .models import LineItem, QuoteGroup
 
 __all__ = [
     "QuoteParser",
     "AdvancedQuoteParser", 
     "OCRParser",
+    "DynamicOCRParser",
+    "DomainAwareParser",
+    "ManufacturingAbbreviationHandler",
     "LineItem",
     "QuoteGroup"
 ] 

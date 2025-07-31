@@ -205,18 +205,10 @@ class QuoteParser:
         if not quantities:
             quantities = ["1"]
         
-        # If no line items found, create a basic structure
+        # If no line items found, return empty result
         if not line_items:
-            # Try to extract any pricing information
-            prices = re.findall(r'[\d,]+\.?\d*', text)
-            if prices:
-                total_price = self.normalize_price(prices[0])
-                line_items = [LineItem(
-                    description="TOTAL",
-                    quantity="1",
-                    unit_price=total_price,
-                    cost=total_price
-                )]
+            logger.warning("No line items found in PDF")
+            return []
         
         # Create quote groups
         quote_groups = []
