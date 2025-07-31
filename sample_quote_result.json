@@ -1,0 +1,602 @@
+[
+  {
+    "quantity": "1",
+    "unitPrice": "4726.04",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "3",
+    "unitPrice": "1575.35",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "4",
+    "unitPrice": "1181.51",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "04",
+    "unitPrice": "1181.51",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "5",
+    "unitPrice": "945.21",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "6",
+    "unitPrice": "787.67",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "12",
+    "unitPrice": "393.84",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "13",
+    "unitPrice": "363.54",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "017",
+    "unitPrice": "278.00",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "30",
+    "unitPrice": "157.53",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "42",
+    "unitPrice": "112.52",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "52",
+    "unitPrice": "90.89",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "91",
+    "unitPrice": "51.93",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "92",
+    "unitPrice": "51.37",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "213",
+    "unitPrice": "22.19",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "240",
+    "unitPrice": "19.69",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "280",
+    "unitPrice": "16.88",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "392",
+    "unitPrice": "12.06",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "445",
+    "unitPrice": "10.62",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "455",
+    "unitPrice": "10.39",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "500",
+    "unitPrice": "9.45",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "600",
+    "unitPrice": "7.88",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "708",
+    "unitPrice": "6.68",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  },
+  {
+    "quantity": "726",
+    "unitPrice": "6.51",
+    "totalPrice": "4726.04",
+    "lineItems": [
+      {
+        "description": "BASE MATERIAL",
+        "quantity": "6",
+        "unitPrice": "240.92",
+        "cost": "1445.52"
+      },
+      {
+        "description": "SOLDER ASSEMBLY",
+        "quantity": "6",
+        "unitPrice": "213.42",
+        "cost": "1280.52"
+      },
+      {
+        "description": "TOOLING SETUP",
+        "quantity": "1",
+        "unitPrice": "2000.00",
+        "cost": "2000.00"
+      }
+    ]
+  }
+]

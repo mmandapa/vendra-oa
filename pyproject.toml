@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vendra-quote-parser"
+version = "1.0.0"
+description = "A robust Python-based parser for extracting structured quote data from supplier PDFs"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Vendra Intern Coding Challenge", email = "mmandapa@ucsc.edu"}
+]
+maintainers = [
+    {name = "Vendra Intern Coding Challenge", email = "mmandapa@ucsc.edu"}
+]
+keywords = ["pdf", "parser", "quote", "manufacturing", "supplier"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "PyPDF2>=3.0.1",
+    "pdfplumber>=0.10.3",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "click>=8.1.7",
+    "python-dateutil>=2.8.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "flake8>=5.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+vendra-parser = "vendra_parser.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/mmandapa/vendra-oa"
+Repository = "https://github.com/mmandapa/vendra-oa"
+Documentation = "https://github.com/mmandapa/vendra-oa#readme"
+Issues = "https://github.com/mmandapa/vendra-oa/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=vendra_parser",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+] 
