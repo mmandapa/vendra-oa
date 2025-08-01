@@ -148,80 +148,29 @@ class DomainAwareParser:
         if not line_items:
             return []
         
-        # Group line items by their natural structure
-        # In manufacturing quotes, we typically have:
-        # 1. Main line items (products/parts)
-        # 2. Process items (machining, finishing, etc.)
-        # 3. Additional charges (shipping, handling, discounts)
-        
-        main_items = []
-        process_items = []
-        charges = []
+        # Group line items by quantity to create separate quote groups
+        # This handles cases where different quantities have different pricing
+        quantity_groups = {}
         
         for item in line_items:
-            desc_lower = item.description.lower()
-            
-            # Categorize items based on domain knowledge
-            if any(keyword in desc_lower for keyword in ['cod', 'discount', 'shipping', 'handling', 'tax']):
-                charges.append(item)
-            elif any(keyword in desc_lower for keyword in ['machining', 'de-burring', 'finishing', 'polishing', 'anodizing']):
-                process_items.append(item)
-            else:
-                main_items.append(item)
+            quantity = item.quantity
+            if quantity not in quantity_groups:
+                quantity_groups[quantity] = []
+            quantity_groups[quantity].append(item)
         
-        # Create quote groups based on the actual structure
+        # Create separate quote groups for each quantity
         quote_groups = []
         
-        # If we have main items, create a quote group for the main quantity
-        if main_items:
-            # Find the most common quantity among main items
-            quantities = [item.quantity for item in main_items if Decimal(item.quantity) > 0]
-            if quantities:
-                main_quantity = max(set(quantities), key=quantities.count)
-            else:
-                main_quantity = "1"
+        for quantity, items in quantity_groups.items():
+            # Calculate total price for this quantity group
+            total_price = self._calculate_total(items)
             
-            # Calculate total price from all items
-            all_items = main_items + process_items + charges
-            total_price = self._calculate_total(all_items)
+            # Calculate unit price for this quantity group
+            unit_price = str(round(Decimal(total_price) / Decimal(quantity), 2)) if Decimal(quantity) > 0 else "0"
             
-            # Create the main quote group
+            # Create quote group for this quantity
             quote_group = {
-                "quantity": main_quantity,
-                "unitPrice": str(round(Decimal(total_price) / Decimal(main_quantity), 2)) if Decimal(main_quantity) > 0 else "0",
-                "totalPrice": total_price,
-                "lineItems": [
-                    {
-                        "description": item.description,
-                        "quantity": item.quantity,
-                        "unitPrice": item.unit_price,
-                        "cost": item.cost
-                    }
-                    for item in all_items
-                ]
-            }
-            
-            quote_groups.append(quote_group)
-        
-        # If no main items, create a single group with all items
-        elif line_items:
-            total_price = self._calculate_total(line_items)
-            
-            # For manufacturing quotes, the quantity is typically the sum of all line item quantities
-            # But we need to be careful - if these are different products, we might want to show them separately
-            # For now, let's use the most common quantity or default to 1
-            quantities = [item.quantity for item in line_items if Decimal(item.quantity) > 0]
-            if quantities:
-                # Use the most common quantity
-                main_quantity = max(set(quantities), key=quantities.count)
-            else:
-                main_quantity = "1"
-            
-            # Calculate unit price as total price divided by main quantity
-            unit_price = str(round(Decimal(total_price) / Decimal(main_quantity), 2)) if Decimal(main_quantity) > 0 else "0"
-            
-            quote_group = {
-                "quantity": main_quantity,
+                "quantity": quantity,
                 "unitPrice": unit_price,
                 "totalPrice": total_price,
                 "lineItems": [
@@ -231,10 +180,14 @@ class DomainAwareParser:
                         "unitPrice": item.unit_price,
                         "cost": item.cost
                     }
-                    for item in line_items
+                    for item in items
                 ]
             }
+            
             quote_groups.append(quote_group)
+        
+        # Sort quote groups by quantity (ascending)
+        quote_groups.sort(key=lambda x: int(x["quantity"]))
         
         return quote_groups
     
