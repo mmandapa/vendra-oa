@@ -122,7 +122,8 @@ class DynamicOCRParser:
         if match:
             try:
                 value = Decimal(match.group(1))
-                return str(value)
+                # Ensure consistent precision for currency values
+                return str(value.quantize(Decimal('0.01')))
             except InvalidOperation:
                 logger.warning(f"Invalid price format: {price_str}")
                 return "0"
@@ -153,14 +154,20 @@ class DynamicOCRParser:
             # Be very conservative about filtering
             line_lower = line.lower()
             
-                    # Skip obvious non-line-item lines
-            if any(keyword in line_lower for keyword in [
-                'total:', 'subtotal:', 'balance:', 'quote #', 'date:', 'page:',
-                'phone:', 'fax:', 'email:', 'quote by:', 'order by:', 'due date:',
-                'lead time:', 'term:', 'via:', 'moq', 'item code', 'description',
-                'unit price', 'amount', 'thank you', 'quotation:', 'valid',
-                'report generated:', 'page 1 of', 'weeks after', 'receipt of'
-            ]):
+                    # Skip obvious non-line-item lines using more specific patterns
+            # Use patterns that require context to avoid blocking legitimate products
+            skip_patterns = [
+                r'\btotal\s*:', r'\bsubtotal\s*:', r'\bbalance\s*:', r'\bquote\s*#', 
+                r'\bdate\s*:', r'\bpage\s*:', r'\bphone\s*:', r'\bfax\s*:', 
+                r'\bemail\s*:', r'\bquote\s+by\b', r'\border\s+by\b', r'\bdue\s+date\s*:',
+                r'\blead\s+time\s*:', r'\bvia\s*:', r'\bmoq\s*:', r'\bitem\s+code\b',
+                r'\bdescription\s*:', r'\bunit\s+price\b', r'\bamount\s*:', 
+                r'\bthank\s+you\b', r'\bquotation\s*:', r'\bvalid\s+(until|through|for)\b',
+                r'\breport\s+generated\s*:', r'\bpage\s+\d+\s+of\s+\d+\b', 
+                r'\bweeks\s+after\b', r'\breceipt\s+of\b'
+            ]
+            
+            if any(re.search(pattern, line_lower) for pattern in skip_patterns):
                 continue
             
             # Skip lines that are addresses or contact info (enhanced filtering)
@@ -211,10 +218,10 @@ class DynamicOCRParser:
                 unit_price = Decimal(self.normalize_price(last_three[1]))
                 total = Decimal(self.normalize_price(last_three[2]))
                 
-                if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
+                if 1 <= qty <= 1000 and unit_price != 0 and total != 0:
                     # Validate: qty * unit_price should equal total (with some tolerance)
                     expected_total = qty * unit_price
-                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                         # Find description using smart extraction
                         description = self._extract_description_smartly(line, last_three[0], last_three[1], last_three[2])
                         if description:
@@ -238,9 +245,9 @@ class DynamicOCRParser:
                 qty = int(last_three[1])
                 total = Decimal(self.normalize_price(last_three[2]))
                 
-                if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
+                if 1 <= qty <= 1000 and unit_price != 0 and total != 0:
                     expected_total = qty * unit_price
-                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                         # Find description using smart extraction  
                         description = self._extract_description_smartly(line, last_three[0], last_three[1], last_three[2])
                         if description:
@@ -270,9 +277,9 @@ class DynamicOCRParser:
                     unit_price = Decimal(self.normalize_price(numbers[i+1]))
                     total = Decimal(self.normalize_price(numbers[i+2]))
                     
-                    if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
+                    if 1 <= qty <= 1000 and unit_price != 0 and total != 0:
                         expected_total = qty * unit_price
-                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                             # Find description using smart extraction
                             description = self._extract_description_smartly(line, numbers[i], numbers[i+1], numbers[i+2])
                             if description:
@@ -306,9 +313,14 @@ class DynamicOCRParser:
                                 unit_price = Decimal(self.normalize_price(numbers[i+1]))
                                 total = Decimal(self.normalize_price(numbers[i+2]))
                                 
-                                if unit_price > 0 and total > 0:
+                                # Allow negative costs for discounts/COD, but ensure they're not zero
+                                if unit_price != 0 and total != 0:
                                     expected_total = qty * unit_price
-                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                                    # For negative totals, use absolute value for percentage check
+                                    tolerance_check = abs(expected_total - total) <= Decimal('0.01')
+                                    percentage_check = abs(expected_total - total) / abs(total) <= Decimal('0.10')
+                                    
+                                    if tolerance_check or percentage_check:
                                         # Find description using smart extraction
                                         description = self._extract_description_smartly(line, num, numbers[i+1], numbers[i+2])
                                         if description:
@@ -347,9 +359,9 @@ class DynamicOCRParser:
                                 unit_price = Decimal(self.normalize_price(numbers[i+1]))
                                 total = Decimal(self.normalize_price(numbers[i+2]))
                                 
-                                if unit_price > 0 and total > 0:
+                                if unit_price != 0 and total != 0:
                                     expected_total = qty * unit_price
-                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                                         # Find description (everything before the quantity)
                                         if num_pos > 0:
                                             description = line[:num_pos].strip()
@@ -380,9 +392,9 @@ class DynamicOCRParser:
                                 unit_price = Decimal(self.normalize_price(numbers[i+1]))
                                 total = Decimal(self.normalize_price(numbers[i+2]))
                                 
-                                if unit_price > 0 and total > 0:
+                                if unit_price != 0 and total != 0:
                                     expected_total = qty * unit_price
-                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                                         # Find description (everything before the quantity)
                                         if num_pos > 0:
                                             description = line[:num_pos].strip()
@@ -412,9 +424,9 @@ class DynamicOCRParser:
                     unit_price = Decimal(self.normalize_price(numbers[-2]))
                     total = Decimal(self.normalize_price(numbers[-1]))
                     
-                    if unit_price > 0 and total > 0:
+                    if unit_price != 0 and total != 0:
                         expected_total = first_qty * unit_price
-                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                             # Find description (everything after the first number but before the prices)
                             first_num_pos = line.find(numbers[0])
                             if first_num_pos >= 0:
@@ -466,9 +478,15 @@ class DynamicOCRParser:
                 # Validate this looks like a real product description
                 if self._is_valid_product_description(description):
                     try:
-                        quantity = "1"  # Assume quantity of 1
-                        unit_price = self.normalize_price(last_two[0])
-                        cost = self.normalize_price(last_two[1])
+                        # Try to infer quantity dynamically instead of hardcoding "1"
+                        unit_price_candidate = self.normalize_price(last_two[0])
+                        cost_candidate = self.normalize_price(last_two[1])
+                        
+                        # If unit_price * 1 ≈ cost, then quantity is likely 1
+                        # Otherwise, try to calculate quantity = cost / unit_price
+                        quantity = self._infer_quantity_from_prices(unit_price_candidate, cost_candidate)
+                        unit_price = unit_price_candidate
+                        cost = cost_candidate
                         
                         if len(description) > 3:
                             # Clean up the description further
@@ -492,6 +510,43 @@ class DynamicOCRParser:
         # Remove extra spaces
         description = re.sub(r'\s+', ' ', description).strip()
         return description
+    
+    def _infer_quantity_from_prices(self, unit_price_str: str, cost_str: str) -> str:
+        """
+        Dynamically infer quantity from unit price and cost relationship.
+        Avoids hardcoding quantity = "1".
+        """
+        try:
+            unit_price = Decimal(unit_price_str)
+            cost = Decimal(cost_str)
+            
+            # Handle edge cases
+            if unit_price == 0 or cost == 0:
+                return "1"  # Fallback for invalid prices
+            
+            # Calculate implied quantity = cost / unit_price
+            implied_quantity = cost / unit_price
+            
+            # Round to nearest reasonable integer
+            rounded_qty = round(float(implied_quantity))
+            
+            # Validate the result makes sense
+            if rounded_qty <= 0:
+                return "1"
+            elif rounded_qty > 1000:  # Suspiciously high quantity
+                return "1"
+            else:
+                # Check if the math works out (within 5% tolerance)
+                expected_cost = unit_price * Decimal(str(rounded_qty))
+                tolerance = abs(expected_cost - cost) / abs(cost) if cost != 0 else 1
+                
+                if tolerance <= 0.05:  # Within 5% tolerance
+                    return str(rounded_qty)
+                else:
+                    return "1"  # Math doesn't work out, default to 1
+                    
+        except (ValueError, InvalidOperation, ZeroDivisionError):
+            return "1"  # Fallback for any calculation errors
     
     def _is_valid_product_description(self, description: str) -> bool:
         """Check if a description looks like a valid product description."""
@@ -644,7 +699,15 @@ class DynamicOCRParser:
         # Check for company header lines (these often have numbers but aren't line items)
         if any(keyword in line_lower for keyword in company_keywords):
             # If it contains company keywords and no obvious product/manufacturing terms, skip it
-            product_keywords = ['material', 'assembly', 'machining', 'tooling', 'part', 'component', 'qty', 'quantity']
+            # Enhanced manufacturing keywords from advanced parser
+            product_keywords = [
+                'material', 'materials', 'raw material', 'assembly', 'assemble', 'machining', 'machine', 'cnc',
+                'tooling', 'tools', 'tool setup', 'part', 'component', 'qty', 'quantity', 'base', 'basic', 'standard',
+                'solder', 'soldering', 'solder assembly', 'labor', 'labour', 'work', 'setup', 'set up', 'initial setup',
+                'finishing', 'finish', 'surface finish', 'packaging', 'package', 'pack', 'shipping', 'ship', 'delivery',
+                'design', 'engineering', 'prototype', 'proto', 'testing', 'test', 'quality', 'polycarbonate', 'steel',
+                'polypropylene', 'de-burr', 'deburr', 'clear', 'balancer', 'limiter', 'plug', 'cod'
+            ]
             if not any(keyword in line_lower for keyword in product_keywords):
                 return True
         

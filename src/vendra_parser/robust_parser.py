@@ -523,17 +523,24 @@ class RobustQuoteParser:
             unit_price = Decimal(item.unit_price)
             cost = Decimal(item.cost)
             
-            # Check for obvious errors
-            if qty <= 0 or unit_price <= 0 or cost <= 0:
-                logger.warning(f"Invalid values in line item: {item.description}")
+            # Check for obvious errors - allow negative costs for discounts/COD
+            if qty <= 0:
+                logger.warning(f"Invalid quantity in line item: {item.description}")
+                return None
+            
+            # Allow negative unit prices and costs (for discounts, COD, etc.)
+            # Only reject if both unit_price and cost are exactly zero
+            if unit_price == 0 and cost == 0:
+                logger.warning(f"Zero values in line item: {item.description}")
                 return None
             
             # Check if math roughly adds up (allow for rounding)
             expected_cost = qty * unit_price
             if abs(cost - expected_cost) > 1.0:  # Allow $1 tolerance
                 logger.warning(f"Cost doesn't add up for {item.description}: {qty} × {unit_price} ≠ {cost}")
-                # Correct the cost
-                item.cost = str(expected_cost)
+                # Don't auto-correct negative costs - they might be legitimate discounts
+                if cost >= 0:  # Only correct positive costs
+                    item.cost = str(expected_cost)
             
             return item
             

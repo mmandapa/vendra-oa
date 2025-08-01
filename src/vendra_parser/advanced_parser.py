@@ -257,8 +257,8 @@ class AdvancedQuoteParser:
         for item in line_items:
             try:
                 cost = Decimal(item.cost)
-                if cost > 0:
-                    total += cost
+                # Include all costs, including negative ones (for discounts, COD, etc.)
+                total += cost
             except (InvalidOperation, ValueError):
                 logger.warning(f"Invalid cost value: {item.cost}")
         

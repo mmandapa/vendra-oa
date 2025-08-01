@@ -142,14 +142,71 @@ class DomainAwareParser:
     
     def parse_quote_structure(self, line_items: List[LineItem]) -> List[Dict[str, Any]]:
         """
-        Parse quote structure correctly based on manufacturing domain knowledge.
-        Returns properly structured quote groups.
+        Parse quote structure correctly for manufacturing quotes.
+        Groups line items by quantity and creates separate quote groups for each quantity level.
         """
         if not line_items:
             return []
         
-        # Group line items by quantity to create separate quote groups
-        # This handles cases where different quantities have different pricing
+        # Group line items by their quantities
+        quantity_groups = self._group_items_by_quantity(line_items)
+        
+        # Create quote groups for each quantity level
+        quote_groups = []
+        
+        for quantity, items in quantity_groups.items():
+            quote_group = self._create_quantity_quote_group(quantity, items)
+            if quote_group:  # Only add non-empty groups
+                quote_groups.append(quote_group)
+        
+        # Sort quote groups by quantity (ascending)
+        quote_groups.sort(key=lambda x: int(x["quantity"]))
+        
+        return quote_groups
+    
+    def _calculate_total(self, line_items: List[LineItem]) -> str:
+        """Calculate total price from line items, including negative values."""
+        total = Decimal('0')
+        for item in line_items:
+            try:
+                cost = Decimal(item.cost)
+                total += cost  # This will handle negative values automatically
+            except (InvalidOperation, ValueError):
+                logger.warning(f"Invalid cost value: {item.cost}")
+        
+        return str(total.quantize(Decimal('0.01')))
+    
+    def _calculate_total_quantity(self, line_items: List[LineItem]) -> int:
+        """Calculate total quantity by summing all line item quantities."""
+        total_quantity = 0
+        for item in line_items:
+            try:
+                quantity = int(item.quantity)
+                total_quantity += quantity
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid quantity value: {item.quantity}")
+                # Default to 1 if quantity can't be parsed
+                total_quantity += 1
+        
+        return total_quantity
+    
+    def _calculate_unit_price_from_totals(self, total_cost: str, total_quantity: int) -> Decimal:
+        """Calculate unit price from total cost and total quantity."""
+        try:
+            cost_decimal = Decimal(total_cost)
+            
+            if total_quantity > 0:
+                unit_price = cost_decimal / Decimal(str(total_quantity))
+                # Use higher precision rounding to avoid accumulation errors
+                return unit_price.quantize(Decimal('0.0001')).quantize(Decimal('0.01'))
+            else:
+                return Decimal('0.00')
+                
+        except (InvalidOperation, ValueError):
+            return Decimal('0.00')
+    
+    def _group_items_by_quantity(self, line_items: List[LineItem]) -> Dict[str, List[LineItem]]:
+        """Group line items by their quantity values."""
         quantity_groups = {}
         
         for item in line_items:
@@ -158,49 +215,40 @@ class DomainAwareParser:
                 quantity_groups[quantity] = []
             quantity_groups[quantity].append(item)
         
-        # Create separate quote groups for each quantity
-        quote_groups = []
-        
-        for quantity, items in quantity_groups.items():
-            # Calculate total price for this quantity group
-            total_price = self._calculate_total(items)
-            
-            # Calculate unit price for this quantity group
-            unit_price = str(round(Decimal(total_price) / Decimal(quantity), 2)) if Decimal(quantity) > 0 else "0"
-            
-            # Create quote group for this quantity
-            quote_group = {
-                "quantity": quantity,
-                "unitPrice": unit_price,
-                "totalPrice": total_price,
-                "lineItems": [
-                    {
-                        "description": item.description,
-                        "quantity": item.quantity,
-                        "unitPrice": item.unit_price,
-                        "cost": item.cost
-                    }
-                    for item in items
-                ]
-            }
-            
-            quote_groups.append(quote_group)
-        
-        # Sort quote groups by quantity (ascending)
-        quote_groups.sort(key=lambda x: int(x["quantity"]))
-        
-        return quote_groups
+        return quantity_groups
     
-    def _calculate_total(self, line_items: List[LineItem]) -> str:
-        """Calculate total price from line items."""
-        total = Decimal('0')
-        for item in line_items:
-            try:
-                total += Decimal(item.cost)
-            except (InvalidOperation, ValueError):
-                logger.warning(f"Invalid cost value: {item.cost}")
+    def _create_quantity_quote_group(self, quantity: str, items: List[LineItem]) -> Dict[str, Any]:
+        """Create a quote group for items with the same quantity."""
+        if not items:
+            return {}
         
-        return str(total)
+        # Calculate total cost for this quantity group
+        total_cost = self._calculate_total(items)
+        
+        # Calculate total item count (multiply quantity by number of items)
+        try:
+            qty_per_item = int(quantity)
+            total_item_count = qty_per_item * len(items)
+        except (ValueError, TypeError):
+            total_item_count = len(items)  # Fallback to just item count
+        
+        # Calculate unit price = total cost / total item count
+        unit_price = self._calculate_unit_price_from_totals(total_cost, total_item_count)
+        
+        return {
+            "quantity": str(total_item_count),  # Total items in this quantity group
+            "unitPrice": str(unit_price),
+            "totalPrice": total_cost,
+            "lineItems": [
+                {
+                    "description": item.description,
+                    "quantity": item.quantity,
+                    "unitPrice": item.unit_price,
+                    "cost": item.cost
+                }
+                for item in items
+            ]
+        }
     
     def normalize_line_item(self, line_item: LineItem) -> LineItem:
         """Normalize line item using domain knowledge."""

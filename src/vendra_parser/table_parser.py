@@ -177,8 +177,9 @@ class TableParser:
             desc_lower = description.lower()
             has_keywords = any(keyword in desc_lower for keyword in self.line_item_keywords)
             
-            # Check if prices are reasonable (not 0 or 1)
-            reasonable_prices = up > 1 and c > 1
+            # Check if prices are reasonable (allow negative costs for discounts/COD)
+            # Reasonable = non-zero and either positive or negative (but not tiny values like 0.01)
+            reasonable_prices = (abs(up) > 1 and abs(c) > 1) or (up != 0 and c != 0)
             
             return has_keywords or reasonable_prices
             
