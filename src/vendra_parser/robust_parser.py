@@ -400,11 +400,16 @@ class RobustQuoteParser:
         return has_descriptive_word
     
     def _final_clean_description(self, description: str) -> str:
-        """Final cleanup of description to remove trailing numbers and extra text."""
-        # Remove trailing numbers and common suffixes
-        description = re.sub(r'\s+\d+\s*$', '', description)
-        description = re.sub(r'\s+and\s+\d+\s*$', '', description)
-        description = re.sub(r'\s+,\s*\d+\s*$', '', description)
+        """Final cleanup of description while preserving product names and part numbers."""
+        # Only remove obvious trailing artifacts, not part numbers
+        # Remove trailing standalone numbers that are clearly not part of product names
+        # Be very conservative - only remove if it's clearly formatting artifacts
+        
+        # Remove trailing "and X" only if X is a small number (likely formatting)
+        description = re.sub(r'\s+and\s+([1-9])\s*$', '', description)  # Only single digits
+        
+        # Remove trailing ", X" only if X is a small number (likely formatting)  
+        description = re.sub(r'\s+,\s*([1-9])\s*$', '', description)  # Only single digits
         
         # Remove extra spaces
         description = re.sub(r'\s+', ' ', description).strip()

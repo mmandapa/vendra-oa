@@ -215,10 +215,9 @@ class DynamicOCRParser:
                     # Validate: qty * unit_price should equal total (with some tolerance)
                     expected_total = qty * unit_price
                     if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
-                        # Find description
-                        first_num_pos = line.find(last_three[0])
-                        if first_num_pos > 0:
-                            description = line[:first_num_pos].strip()
+                        # Find description using smart extraction
+                        description = self._extract_description_smartly(line, last_three[0], last_three[1], last_three[2])
+                        if description:
                             description = self._clean_description(description)
                             
                             if self._is_valid_product_description(description):
@@ -242,10 +241,9 @@ class DynamicOCRParser:
                 if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
                     expected_total = qty * unit_price
                     if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
-                        # Find description
-                        second_num_pos = line.find(last_three[1])
-                        if second_num_pos > 0:
-                            description = line[:second_num_pos].strip()
+                        # Find description using smart extraction  
+                        description = self._extract_description_smartly(line, last_three[0], last_three[1], last_three[2])
+                        if description:
                             description = self._clean_description(description)
                             
                             if self._is_valid_product_description(description):
@@ -275,10 +273,9 @@ class DynamicOCRParser:
                     if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
                         expected_total = qty * unit_price
                         if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
-                            # Find description (everything before quantity)
-                            qty_pos = line.find(str(qty))
-                            if qty_pos > 0:
-                                description = line[:qty_pos].strip()
+                            # Find description using smart extraction
+                            description = self._extract_description_smartly(line, numbers[i], numbers[i+1], numbers[i+2])
+                            if description:
                                 description = self._clean_description(description)
                                 
                                 if self._is_valid_product_description(description):
@@ -312,9 +309,9 @@ class DynamicOCRParser:
                                 if unit_price > 0 and total > 0:
                                     expected_total = qty * unit_price
                                     if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
-                                        # Find description
-                                        if num_pos > 0:
-                                            description = line[:num_pos].strip()
+                                        # Find description using smart extraction
+                                        description = self._extract_description_smartly(line, num, numbers[i+1], numbers[i+2])
+                                        if description:
                                             description = self._clean_description(description)
                                             
                                             if self._is_valid_product_description(description):
@@ -519,16 +516,67 @@ class DynamicOCRParser:
         return has_descriptive_word
     
     def _final_clean_description(self, description: str) -> str:
-        """Final cleanup of description to remove trailing numbers and extra text."""
-        # Remove trailing numbers and common suffixes
-        description = re.sub(r'\s+\d+\s*$', '', description)  # Remove trailing numbers
-        description = re.sub(r'\s+and\s+\d+\s*$', '', description)  # Remove "and X" at end
-        description = re.sub(r'\s+,\s*\d+\s*$', '', description)  # Remove ", X" at end
+        """Final cleanup of description while preserving product names and part numbers."""
+        # Only remove obvious trailing artifacts, not part numbers
+        # Remove trailing standalone numbers that are clearly not part of product names
+        # Be very conservative - only remove if it's clearly formatting artifacts
+        
+        # Remove trailing "and X" only if X is a small number (likely formatting)
+        description = re.sub(r'\s+and\s+([1-9])\s*$', '', description)  # Only single digits
+        
+        # Remove trailing ", X" only if X is a small number (likely formatting)  
+        description = re.sub(r'\s+,\s*([1-9])\s*$', '', description)  # Only single digits
         
         # Remove extra spaces
         description = re.sub(r'\s+', ' ', description).strip()
         
         return description
+    
+    def _extract_description_smartly(self, line: str, qty_or_price1: str, price_or_qty: str, total: str) -> Optional[str]:
+        """
+        Smart description extraction that preserves product names with numbers.
+        Looks for the pricing numbers specifically rather than cutting at first number.
+        """
+        # Strategy 1: Look for the pricing pattern at the end of the line
+        # Most line items have format: DESCRIPTION [QTY] [UNIT_PRICE] [TOTAL]
+        
+        # Find the position of the total (last number)
+        total_pos = line.rfind(total)
+        if total_pos == -1:
+            return None
+            
+        # Find the position of the unit price (second to last number)
+        price_pos = line.rfind(price_or_qty, 0, total_pos)
+        if price_pos == -1:
+            return None
+            
+        # Find the position of the quantity/first price (third to last number)
+        qty_pos = line.rfind(qty_or_price1, 0, price_pos)
+        if qty_pos == -1:
+            return None
+        
+        # Extract description as everything before the pricing numbers
+        # But be smart about it - look for word boundaries
+        description_end = qty_pos
+        
+        # Look backwards from qty_pos to find a good word boundary
+        temp_desc = line[:description_end].strip()
+        if temp_desc:
+            # If the description ends with a word character, we're good
+            # Otherwise, try to find a better cut point
+            words = temp_desc.split()
+            if words:
+                # Rejoin all complete words
+                description = ' '.join(words)
+                if len(description) > 2:  # Reasonable length
+                    return description
+        
+        # Strategy 2: Fallback - use the simple approach but validate result
+        simple_desc = line[:qty_pos].strip()
+        if len(simple_desc) > 2:
+            return simple_desc
+            
+        return None
     
     def _is_address_or_contact_line(self, line: str, line_lower: str, numbers: List[str]) -> bool:
         """

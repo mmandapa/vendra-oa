@@ -79,22 +79,12 @@ def get_output_preference() -> Optional[str]:
 
 
 def get_parser_choice() -> str:
-    """Ask user to choose between parser types."""
-    while True:
-        choice = input("\n🔧 Choose your parser:\n"
-                      "1. Basic Parser (faster, good for standard formats)\n"
-                      "2. Advanced Parser (more thorough, handles complex formats)\n"
-                      "3. OCR Parser (uses image recognition for difficult PDFs)\n"
-                      "Enter your choice (1-3): ").strip()
-        
-        if choice == "1":
-            return "basic"
-        elif choice == "2":
-            return "advanced"
-        elif choice == "3":
-            return "ocr"
-        else:
-            print("❌ Invalid choice. Please enter 1, 2, or 3.")
+    """Use OCR parser (the only recommended option)."""
+    print("\n🔧 Using OCR Parser (optimized for all PDF formats)")
+    print("   • Handles scanned and text-based documents")
+    print("   • Uses advanced pattern recognition")
+    print("   • Best accuracy for quote extraction")
+    return "ocr"
 
 
 @click.group(invoke_without_command=True)
@@ -130,16 +120,9 @@ def interactive_mode():
         
         # Parse the quote
         print(f"\n🔄 Parsing PDF: {pdf_path}")
-        print(f"📊 Using {parser_type.title()} Parser...")
+        print(f"📊 Using OCR Parser for optimal accuracy...")
         
-        if parser_type == "basic":
-            parser = QuoteParser()
-        elif parser_type == "advanced":
-            parser = AdvancedQuoteParser()
-        elif parser_type == "ocr":
-            parser = OCRParser()
-        else:
-            parser = QuoteParser()  # Default fallback
+        parser = OCRParser()
         
         # Parse and get results
         result = parser.parse_quote_to_json(pdf_path, output_file)
