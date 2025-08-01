@@ -131,44 +131,53 @@ class DynamicOCRParser:
     
     def discover_line_items_dynamically(self, text: str) -> List[LineItem]:
         """
-        Dynamically discover line items by analyzing the text structure.
-        No assumptions about format - purely pattern-based discovery.
+        Completely dynamic line item discovery - no assumptions about format.
+        Analyzes every line and tries to extract any valid line item.
         """
         line_items = []
         lines = text.split('\n')
         
         logger.info(f"Analyzing {len(lines)} lines for dynamic pattern discovery")
         
-        # Step 1: Find lines that contain multiple numbers (potential line items)
+        # Step 1: Find ALL lines with numbers (potential line items)
         candidate_lines = []
         for i, line in enumerate(lines):
             line = line.strip()
             if not line:
                 continue
             
-            # Skip obvious non-line-item lines
-            skip_keywords = [
-                'phone', 'fax', 'total', 'estimate', 'date', 'name', 'address',
-                'suite', 'street', 'blvd', 'avenue', 'road', 'drive', 'lane',
-                'ca ', 'california', 'zip', 'postal', 'generated', 'page',
-                'receipt', 'order', 'drawings', 'specifications', 'specialists',
-                'semiconductor', 'tooling', 'santa clara', 'san francisco'
-            ]
-            if any(skip_word in line.lower() for skip_word in skip_keywords):
-                continue
-            
-            # Skip lines that are clearly addresses or contact info
-            if re.search(r'\b\d{5}\b', line):  # 5-digit zip codes
-                continue
-            if re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', line):  # Phone numbers
-                continue
-            if re.search(r'\b[A-Z]{2}\s+\d{5}\b', line):  # State + zip pattern
-                continue
-            
             # Find all numbers in the line
             numbers = re.findall(r'(-?[\d,]+\.?\d*)', line)
             
-            # If line has 2 or more numbers, it might be a line item
+            # Only skip lines that are clearly headers, totals, or metadata
+            # Be very conservative about filtering
+            line_lower = line.lower()
+            
+                    # Skip obvious non-line-item lines
+            if any(keyword in line_lower for keyword in [
+                'total:', 'subtotal:', 'balance:', 'quote #', 'date:', 'page:',
+                'phone:', 'fax:', 'email:', 'quote by:', 'order by:', 'due date:',
+                'lead time:', 'term:', 'via:', 'moq', 'item code', 'description',
+                'unit price', 'amount', 'thank you', 'quotation:', 'valid',
+                'report generated:', 'page 1 of', 'weeks after', 'receipt of'
+            ]):
+                continue
+            
+            # Skip lines that are purely addresses or contact info
+            if (re.search(r'\b\d{5}\b', line) and 
+                len(numbers) <= 1 and 
+                any(word in line_lower for word in ['street', 'avenue', 'road', 'drive', 'lane', 'blvd', 'san', 'francisco', 'jose', 'california', 'ca'])):
+                continue
+            
+            # Skip lines that are purely phone numbers
+            if (re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', line) and len(numbers) <= 1):
+                continue
+            
+            # Skip lines that are purely city/state/zip combinations
+            if (re.search(r'\b[A-Z]{2}\s+\d{5}\b', line) and len(numbers) <= 1):
+                continue
+            
+            # If line has at least 2 numbers, it's a candidate
             if len(numbers) >= 2:
                 candidate_lines.append((i, line, numbers))
         
@@ -188,29 +197,19 @@ class DynamicOCRParser:
     
     def _try_parse_line_item(self, line: str, numbers: List[str]) -> Optional[LineItem]:
         """
-        Try to parse a line as a line item using multiple strategies.
-        Returns None if parsing fails.
+        Completely dynamic line item parsing - tries all possible combinations.
+        Returns the best match based on mathematical validation.
         """
-        # Skip lines that are clearly not line items
-        skip_keywords = [
-            'san clemente', 'san francisco', 'phone', 'fax', 'estimate', 'date', 'name', 'address', 
-            'suite', 'street', 'vtn manufacturing', 'little orchard', '3rd street', 'quote', 'outa',
-            'specialists', 'semiconductor', 'tooling', 'santa clara', 'california', 'generated', 'page',
-            'receipt', 'order', 'drawings', 'specifications', 'blvd', 'avenue', 'road', 'drive', 'lane',
-            'zip', 'postal'
-        ]
-        if any(skip_word in line.lower() for skip_word in skip_keywords):
-            return None
+        # Minimal filtering - only reject clearly non-product lines
+        line_lower = line.lower()
         
-        # Skip lines with zip codes, phone numbers, or other contact info
-        if re.search(r'\b\d{5}\b', line):  # 5-digit zip codes
-            return None
-        if re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', line):  # Phone numbers
-            return None
-        if re.search(r'\b[A-Z]{2}\s+\d{5}\b', line):  # State + zip pattern
-            return None
-        if re.search(r'\b[A-Z]{2}\s+\d{3}\s+\d{4}\b', line):  # State + area code + phone
-            return None
+        # Skip lines that are clearly addresses or contact info
+        if any(keyword in line_lower for keyword in ['san francisco', 'san jose', 'california', 'ca ']):
+            # Skip if it's just an address with no meaningful product numbers
+            # Check if the numbers are just zip codes or phone numbers
+            meaningful_numbers = [n for n in numbers if not re.match(r'^\d{5}$', n) and not re.match(r'^\d{3}\s+\d{3}\s+\d{4}$', n)]
+            if len(meaningful_numbers) <= 1:
+                return None
         
         # Strategy 1: Smart quantity detection with validation
         # Try multiple approaches and pick the best one
@@ -226,10 +225,10 @@ class DynamicOCRParser:
                 unit_price = Decimal(self.normalize_price(last_three[1]))
                 total = Decimal(self.normalize_price(last_three[2]))
                 
-                if 1 <= qty <= 100 and unit_price > 0 and total > 0:
+                if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
                     # Validate: qty * unit_price should equal total (with some tolerance)
                     expected_total = qty * unit_price
-                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
                         # Find description
                         first_num_pos = line.find(last_three[0])
                         if first_num_pos > 0:
@@ -254,9 +253,9 @@ class DynamicOCRParser:
                 qty = int(last_three[1])
                 total = Decimal(self.normalize_price(last_three[2]))
                 
-                if 1 <= qty <= 100 and unit_price > 0 and total > 0:
+                if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
                     expected_total = qty * unit_price
-                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
                         # Find description
                         second_num_pos = line.find(last_three[1])
                         if second_num_pos > 0:
@@ -287,9 +286,9 @@ class DynamicOCRParser:
                     unit_price = Decimal(self.normalize_price(numbers[i+1]))
                     total = Decimal(self.normalize_price(numbers[i+2]))
                     
-                    if 1 <= qty <= 100 and unit_price > 0 and total > 0:
+                    if 1 <= qty <= 1000 and unit_price > 0 and total > 0:
                         expected_total = qty * unit_price
-                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
                             # Find description (everything before quantity)
                             qty_pos = line.find(str(qty))
                             if qty_pos > 0:
@@ -312,7 +311,7 @@ class DynamicOCRParser:
         for i, num in enumerate(numbers):
             try:
                 qty = int(num)
-                if 1 <= qty <= 100:
+                if 1 <= qty <= 1000:
                     # Check if this number appears near quantity-related keywords
                     num_pos = line.find(num)
                     context = line[max(0, num_pos-20):num_pos+20].lower()
@@ -326,7 +325,7 @@ class DynamicOCRParser:
                                 
                                 if unit_price > 0 and total > 0:
                                     expected_total = qty * unit_price
-                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
                                         # Find description
                                         if num_pos > 0:
                                             description = line[:num_pos].strip()
@@ -346,6 +345,114 @@ class DynamicOCRParser:
             except (ValueError, InvalidOperation):
                 pass
         
+        # Strategy 3.5: Look for standalone quantity numbers (not embedded in product names)
+        # This handles cases where quantity appears as a separate number
+        for i, num in enumerate(numbers):
+            try:
+                qty = int(num)
+                if 1 <= qty <= 1000:
+                    # Check if this number appears as a standalone quantity
+                    num_pos = line.find(num)
+                    
+                    # Look for patterns that suggest this is a standalone quantity
+                    # 1. Number followed by price-related text
+                    after_num = line[num_pos + len(num):num_pos + len(num) + 10].lower()
+                    if any(keyword in after_num for keyword in ['$', 'price', 'ea', 'each', 'unit']):
+                        # This looks like a standalone quantity
+                        if i + 2 < len(numbers):
+                            try:
+                                unit_price = Decimal(self.normalize_price(numbers[i+1]))
+                                total = Decimal(self.normalize_price(numbers[i+2]))
+                                
+                                if unit_price > 0 and total > 0:
+                                    expected_total = qty * unit_price
+                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                                        # Find description (everything before the quantity)
+                                        if num_pos > 0:
+                                            description = line[:num_pos].strip()
+                                            description = self._clean_description(description)
+                                            
+                                            if self._is_valid_product_description(description):
+                                                description = self._final_clean_description(description)
+                                                candidates.append({
+                                                    'description': description,
+                                                    'quantity': str(qty),
+                                                    'unit_price': str(unit_price),
+                                                    'cost': str(total),
+                                                    'confidence': 0.9  # High confidence for standalone quantity
+                                                })
+                            except (ValueError, InvalidOperation):
+                                pass
+                    
+                    # 2. Number that's not part of a larger number (like "5" in "5-basebalancer-05")
+                    # Check if the number is surrounded by spaces or at the end of description
+                    before_num = line[max(0, num_pos-1):num_pos]
+                    after_num_full = line[num_pos + len(num):num_pos + len(num) + 1]
+                    
+                    if (before_num.endswith(' ') or before_num.endswith('-') or num_pos == 0) and \
+                       (after_num_full.startswith(' ') or after_num_full.startswith('-') or after_num_full.startswith('$')):
+                        # This looks like a standalone quantity
+                        if i + 2 < len(numbers):
+                            try:
+                                unit_price = Decimal(self.normalize_price(numbers[i+1]))
+                                total = Decimal(self.normalize_price(numbers[i+2]))
+                                
+                                if unit_price > 0 and total > 0:
+                                    expected_total = qty * unit_price
+                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                                        # Find description (everything before the quantity)
+                                        if num_pos > 0:
+                                            description = line[:num_pos].strip()
+                                            description = self._clean_description(description)
+                                            
+                                            if self._is_valid_product_description(description):
+                                                description = self._final_clean_description(description)
+                                                candidates.append({
+                                                    'description': description,
+                                                    'quantity': str(qty),
+                                                    'unit_price': str(unit_price),
+                                                    'cost': str(total),
+                                                    'confidence': 0.85  # Good confidence for standalone quantity
+                                                })
+                            except (ValueError, InvalidOperation):
+                                pass
+            except (ValueError, InvalidOperation):
+                pass
+        
+        # Strategy 4: Try first number as quantity (common pattern: qty + description + unit_price + total)
+        if len(numbers) >= 3:
+            try:
+                first_qty = int(numbers[0])
+                if 1 <= first_qty <= 1000:
+                    # Try to find unit price and total from the remaining numbers
+                    # Look for the last two numbers as unit_price and total
+                    unit_price = Decimal(self.normalize_price(numbers[-2]))
+                    total = Decimal(self.normalize_price(numbers[-1]))
+                    
+                    if unit_price > 0 and total > 0:
+                        expected_total = first_qty * unit_price
+                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.10'):
+                            # Find description (everything after the first number but before the prices)
+                            first_num_pos = line.find(numbers[0])
+                            if first_num_pos >= 0:
+                                # Find the position of the unit price
+                                unit_price_pos = line.find(str(unit_price))
+                                if unit_price_pos > first_num_pos:
+                                    description = line[first_num_pos + len(numbers[0]):unit_price_pos].strip()
+                                    description = self._clean_description(description)
+                                    
+                                    if self._is_valid_product_description(description):
+                                        description = self._final_clean_description(description)
+                                        candidates.append({
+                                            'description': description,
+                                            'quantity': str(first_qty),
+                                            'unit_price': str(unit_price),
+                                            'cost': str(total),
+                                            'confidence': 0.95  # Very high confidence for exact math match
+                                        })
+            except (ValueError, InvalidOperation):
+                pass
+        
         # Pick the best candidate
         if candidates:
             # Sort by confidence and pick the highest
@@ -362,7 +469,7 @@ class DynamicOCRParser:
                 cost=best['cost']
             )
         
-        # Strategy 4: Fallback for simple cases (quantity = 1)
+        # Strategy 5: Fallback for simple cases (quantity = 1)
         if len(numbers) >= 2:
             # Take the last 2 numbers
             last_two = numbers[-2:]
@@ -405,50 +512,23 @@ class DynamicOCRParser:
     
     def _is_valid_product_description(self, description: str) -> bool:
         """Check if a description looks like a valid product description."""
-        if not description or len(description) < 3:
+        if not description or len(description) < 2:
             return False
         
         desc_lower = description.lower()
         
-        # Must not contain non-product keywords (addresses, company info, etc.)
-        non_product_keywords = [
-            'san clemente', 'san francisco', 'phone', 'fax', 'estimate', 'date', 'name', 'address',
-            'thirty-two', 'machine inc', 'calle', 'pintoresco', 'suite', 'street', 'vtn manufacturing',
-            'little orchard', '3rd street', 'quote', 'outa', 'specialists', 'semiconductor', 'tooling',
-            'santa clara', 'california', 'generated', 'page', 'receipt', 'order', 'drawings', 'specifications',
-            'blvd', 'avenue', 'road', 'drive', 'lane', 'zip', 'postal'
-        ]
-        
-        has_non_product_keyword = any(keyword in desc_lower for keyword in non_product_keywords)
-        
-        # If it contains non-product keywords, reject it
-        if has_non_product_keyword:
+        # Only reject descriptions that are clearly not products
+        # Be very conservative - let mathematical validation be the primary filter
+        if desc_lower.startswith(('to:', 'from:', 'attn:', 're:', 'subject:', 'date:', 'page:')):
             return False
         
-        # Skip descriptions that are just addresses or contact info
-        if re.search(r'\b\d{5}\b', description):  # Contains zip codes
-            return False
-        if re.search(r'\b[A-Z]{2}\s+\d{5}\b', description):  # State + zip pattern
-            return False
-        if re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', description):  # Phone numbers
-            return False
-        
-        # Must be reasonably long and contain some descriptive text
-        # (not just numbers or single words)
+        # Must have some descriptive content (not just numbers)
         words = description.split()
-        if len(words) < 2:
+        if len(words) < 1:
             return False
         
         # Must contain at least one word that's not just numbers
         has_descriptive_word = any(not word.isdigit() and len(word) > 1 for word in words)
-        
-        # Must not be just a single letter or very short description
-        if len(description.strip()) < 5:
-            return False
-        
-        # Must not start with common non-product prefixes
-        if desc_lower.startswith(('to:', 'from:', 'attn:', 're:', 'subject:', 'date:', 'page:')):
-            return False
         
         return has_descriptive_word
     
