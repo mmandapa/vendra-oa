@@ -163,18 +163,8 @@ class DynamicOCRParser:
             ]):
                 continue
             
-            # Skip lines that are purely addresses or contact info
-            if (re.search(r'\b\d{5}\b', line) and 
-                len(numbers) <= 1 and 
-                any(word in line_lower for word in ['street', 'avenue', 'road', 'drive', 'lane', 'blvd', 'san', 'francisco', 'jose', 'california', 'ca'])):
-                continue
-            
-            # Skip lines that are purely phone numbers
-            if (re.search(r'\b\d{3}\s+\d{3}\s+\d{4}\b', line) and len(numbers) <= 1):
-                continue
-            
-            # Skip lines that are purely city/state/zip combinations
-            if (re.search(r'\b[A-Z]{2}\s+\d{5}\b', line) and len(numbers) <= 1):
+            # Skip lines that are addresses or contact info (enhanced filtering)
+            if self._is_address_or_contact_line(line, line_lower, numbers):
                 continue
             
             # If line has at least 2 numbers, it's a candidate
@@ -203,13 +193,9 @@ class DynamicOCRParser:
         # Minimal filtering - only reject clearly non-product lines
         line_lower = line.lower()
         
-        # Skip lines that are clearly addresses or contact info
-        if any(keyword in line_lower for keyword in ['san francisco', 'san jose', 'california', 'ca ']):
-            # Skip if it's just an address with no meaningful product numbers
-            # Check if the numbers are just zip codes or phone numbers
-            meaningful_numbers = [n for n in numbers if not re.match(r'^\d{5}$', n) and not re.match(r'^\d{3}\s+\d{3}\s+\d{4}$', n)]
-            if len(meaningful_numbers) <= 1:
-                return None
+        # Skip lines that are clearly addresses or contact info (enhanced filtering)
+        if self._is_address_or_contact_line(line, line_lower, numbers):
+            return None
         
         # Strategy 1: Smart quantity detection with validation
         # Try multiple approaches and pick the best one
@@ -543,6 +529,106 @@ class DynamicOCRParser:
         description = re.sub(r'\s+', ' ', description).strip()
         
         return description
+    
+    def _is_address_or_contact_line(self, line: str, line_lower: str, numbers: List[str]) -> bool:
+        """
+        Comprehensive check if a line is an address or contact information.
+        This works regardless of how many numbers are in the line.
+        """
+        # Address keywords (more comprehensive)
+        address_keywords = [
+            'street', 'avenue', 'road', 'drive', 'lane', 'blvd', 'boulevard', 'st', 'ave', 'rd', 'dr', 'ln',
+            'suite', 'ste', 'apt', 'apartment', 'unit', 'floor', 'room', '#',
+            'san', 'francisco', 'jose', 'california', 'ca', 'los angeles', 'santa', 'north', 'south', 'east', 'west',
+            'city', 'county', 'state', 'zip', 'postal'
+        ]
+        
+        # Contact keywords
+        contact_keywords = [
+            'phone', 'tel', 'telephone', 'fax', 'email', 'mail', 'website', 'web', 'www',
+            'contact', 'attn', 'attention', 'to:', 'from:', 'c/o', 'care of'
+        ]
+        
+        # Company/header keywords that might contain numbers but aren't line items
+        company_keywords = [
+            'inc', 'corp', 'corporation', 'llc', 'ltd', 'limited', 'company', 'co',
+            'manufacturing', 'mfg', 'industries', 'group', 'enterprises'
+        ]
+        
+        # Check for address patterns (using word boundaries for better precision)
+        address_matches = []
+        for keyword in address_keywords:
+            # Use word boundaries for short keywords to avoid false matches
+            if len(keyword) <= 3:
+                if re.search(r'\b' + re.escape(keyword) + r'\b', line_lower):
+                    address_matches.append(keyword)
+            else:
+                if keyword in line_lower:
+                    address_matches.append(keyword)
+        
+        if address_matches:
+            # Additional validation: check if it has address-like number patterns
+            # Zip codes (5 digits, or 5+4 format)
+            if re.search(r'\b\d{5}(-\d{4})?\b', line):
+                return True
+            # Street addresses (number + street keyword)
+            if re.search(r'\b\d+\s+(street|avenue|road|drive|lane|blvd|st|ave|rd|dr|ln)\b', line_lower):
+                return True
+            # Suite/apartment numbers
+            if re.search(r'(suite|ste|apt|apartment|unit|floor|room|#)\s*\d+', line_lower):
+                return True
+            # If it has 2+ address keywords, it's probably an address even without specific patterns
+            if len(address_matches) >= 2:
+                return True
+        
+        # Check for contact patterns
+        if any(keyword in line_lower for keyword in contact_keywords):
+            # Phone number patterns
+            if re.search(r'\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b', line) or re.search(r'\(\d{3}\)\s*\d{3}[-.\s]\d{4}', line):
+                return True
+            # Email patterns
+            if re.search(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', line):
+                return True
+            # Website patterns
+            if re.search(r'\bwww\.|\.com\b|\.org\b|\.net\b', line_lower):
+                return True
+        
+        # Check for company header lines (these often have numbers but aren't line items)
+        if any(keyword in line_lower for keyword in company_keywords):
+            # If it contains company keywords and no obvious product/manufacturing terms, skip it
+            product_keywords = ['material', 'assembly', 'machining', 'tooling', 'part', 'component', 'qty', 'quantity']
+            if not any(keyword in line_lower for keyword in product_keywords):
+                return True
+        
+        # Check for lines that are just numbers with no meaningful description
+        # Remove all numbers from the line and see what's left
+        text_without_numbers = re.sub(r'[\d,.$%-]+', '', line).strip()
+        meaningful_text = re.sub(r'[^\w\s]', ' ', text_without_numbers).strip()
+        
+        # If after removing numbers there's very little meaningful text, it might be an address/contact line
+        # Use the same precise matching logic for contact keywords
+        contact_matches = []
+        for keyword in contact_keywords:
+            if len(keyword) <= 3:
+                if re.search(r'\b' + re.escape(keyword) + r'\b', line_lower):
+                    contact_matches.append(keyword)
+            else:
+                if keyword in line_lower:
+                    contact_matches.append(keyword)
+        
+        if len(meaningful_text.split()) <= 2 and (address_matches or contact_matches):
+            return True
+        
+        # Check for specific problematic patterns that commonly get misidentified
+        # Lines that start with numbers but are addresses (e.g., "123 Main Street")
+        if re.match(r'^\s*\d+\s+(street|avenue|road|drive|lane|blvd|st|ave|rd|dr|ln)', line_lower):
+            return True
+        
+        # Lines that contain city, state, zip patterns
+        if re.search(r'\b[A-Z][a-z]+,\s*[A-Z]{2}\s+\d{5}\b', line):
+            return True
+        
+        return False
     
     def discover_quantities_dynamically(self, text: str) -> List[str]:
         """
