@@ -140,13 +140,14 @@ class DomainAwareParser:
     def __init__(self):
         self.abbreviation_handler = ManufacturingAbbreviationHandler()
     
-    def parse_quote_structure(self, line_items: List[LineItem]) -> List[Dict[str, Any]]:
+    def parse_quote_structure(self, line_items: List[LineItem]) -> Dict[str, Any]:
         """
         Parse quote structure correctly for manufacturing quotes.
         Groups line items by quantity and creates separate quote groups for each quantity level.
+        Returns structure with overarching totals and grouped items.
         """
         if not line_items:
-            return []
+            return {"summary": {}, "groups": []}
         
         # Group line items by their quantities
         quantity_groups = self._group_items_by_quantity(line_items)
@@ -162,7 +163,22 @@ class DomainAwareParser:
         # Sort quote groups by quantity (ascending)
         quote_groups.sort(key=lambda x: int(x["quantity"]))
         
-        return quote_groups
+        # Calculate overarching totals
+        total_quantity = sum(int(group["quantity"]) for group in quote_groups)
+        total_unit_price_sum = sum(Decimal(group["unitPrice"]) for group in quote_groups)
+        total_cost = sum(Decimal(group["totalPrice"]) for group in quote_groups)
+        
+        summary = {
+            "totalQuantity": str(total_quantity),
+            "totalUnitPriceSum": str(total_unit_price_sum.quantize(Decimal('0.01'))),
+            "totalCost": str(total_cost.quantize(Decimal('0.01'))),
+            "numberOfGroups": len(quote_groups)
+        }
+        
+        return {
+            "summary": summary,
+            "groups": quote_groups
+        }
     
     def _calculate_total(self, line_items: List[LineItem]) -> str:
         """Calculate total price from line items, including negative values."""
@@ -205,6 +221,18 @@ class DomainAwareParser:
         except (InvalidOperation, ValueError):
             return Decimal('0.00')
     
+    def _sum_unit_prices(self, line_items: List[LineItem]) -> str:
+        """Sum all individual unit prices (preserves actual PDF values)."""
+        total_unit_price = Decimal('0')
+        for item in line_items:
+            try:
+                unit_price = Decimal(item.unit_price)
+                total_unit_price += unit_price
+            except (InvalidOperation, ValueError):
+                logger.warning(f"Invalid unit price value: {item.unit_price}")
+        
+        return str(total_unit_price.quantize(Decimal('0.01')))
+    
     def _group_items_by_quantity(self, line_items: List[LineItem]) -> Dict[str, List[LineItem]]:
         """Group line items by their quantity values."""
         quantity_groups = {}
@@ -232,12 +260,12 @@ class DomainAwareParser:
         except (ValueError, TypeError):
             total_item_count = len(items)  # Fallback to just item count
         
-        # Calculate unit price = total cost / total item count
-        unit_price = self._calculate_unit_price_from_totals(total_cost, total_item_count)
+        # Sum up all individual unit prices (actual values from PDF)
+        unit_price_sum = self._sum_unit_prices(items)
         
         return {
             "quantity": str(total_item_count),  # Total items in this quantity group
-            "unitPrice": str(unit_price),
+            "unitPrice": str(unit_price_sum),  # Sum of all individual unit prices
             "totalPrice": total_cost,
             "lineItems": [
                 {
@@ -274,7 +302,7 @@ class DomainAwareParser:
         return description
 
 
-def parse_with_domain_knowledge(line_items: List[LineItem]) -> List[Dict[str, Any]]:
+def parse_with_domain_knowledge(line_items: List[LineItem]) -> Dict[str, Any]:
     """
     Parse line items using manufacturing domain knowledge.
     
@@ -282,7 +310,7 @@ def parse_with_domain_knowledge(line_items: List[LineItem]) -> List[Dict[str, An
         line_items: List of extracted line items
         
     Returns:
-        Properly structured quote groups
+        Structure with summary totals and grouped quote items
     """
     parser = DomainAwareParser()
     

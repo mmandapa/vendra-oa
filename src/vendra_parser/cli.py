@@ -11,48 +11,32 @@ from pathlib import Path
 from typing import Optional
 
 from .ocr_parser import OCRParser, DynamicOCRParser
-from .file_picker import get_pdf_via_picker
 
 
 def get_pdf_path() -> str:
-    """Prompt user to provide PDF file path or use file picker."""
+    """Prompt user to provide PDF file path."""
     while True:
-        choice = input("\n📄 How would you like to select your PDF file?\n"
-                      "1. Use file picker (opens Finder)\n"
-                      "2. Enter file path manually\n"
-                      "Enter your choice (1-2): ").strip()
+        # Manual path entry only
+        pdf_path = input("\n📄 Please enter the path to your PDF quote file: ").strip()
         
-        if choice == "1":
-            # Use file picker
-            pdf_path = get_pdf_via_picker()
-            if pdf_path:
-                return pdf_path
-            else:
-                print("❌ No file selected. Please try again.")
-                continue
-        elif choice == "2":
-            # Manual path entry
-            pdf_path = input("\n📄 Please enter the path to your PDF quote file: ").strip()
+        if not pdf_path:
+            print("❌ No file path provided. Please try again.")
+            continue
             
-            if not pdf_path:
-                print("❌ No file path provided. Please try again.")
-                continue
-                
-            # Remove quotes if user added them
-            pdf_path = pdf_path.strip('"\'')
+        # Remove quotes if user added them
+        pdf_path = pdf_path.strip('"\'')
+        
+        if not os.path.exists(pdf_path):
+            print(f"❌ File not found: {pdf_path}")
+            print("Please check the file path and try again.")
+            continue
             
-            if not os.path.exists(pdf_path):
-                print(f"❌ File not found: {pdf_path}")
-                print("Please check the file path and try again.")
-                continue
-                
-            if not pdf_path.lower().endswith('.pdf'):
-                print("❌ File must be a PDF (.pdf extension)")
-                continue
-                
-            return pdf_path
-        else:
-            print("❌ Invalid choice. Please enter 1 or 2.")
+        if not pdf_path.lower().endswith('.pdf'):
+            print("❌ File must be a PDF (.pdf extension)")
+            continue
+            
+        return pdf_path
+
 
 
 def get_output_preference() -> Optional[str]:
@@ -140,13 +124,32 @@ def interactive_mode():
         try:
             import json
             parsed_data = json.loads(result) if isinstance(result, str) else result
-            print(f"\n📈 SUMMARY:")
-            print(f"   • Found {len(parsed_data)} quote group(s)")
-            for i, group in enumerate(parsed_data, 1):
-                print(f"   • Group {i}: Qty {group['quantity']}, "
-                      f"Unit Price ${group['unitPrice']}, "
-                      f"Total ${group['totalPrice']}")
-                print(f"     Line items: {len(group['lineItems'])}")
+            
+            # Handle new structure with summary and groups
+            if isinstance(parsed_data, dict) and "groups" in parsed_data:
+                summary = parsed_data.get("summary", {})
+                groups = parsed_data.get("groups", [])
+                
+                print(f"\n📈 SUMMARY:")
+                print(f"   • Total Quantity: {summary.get('totalQuantity', '0')}")
+                print(f"   • Total Unit Price Sum: ${summary.get('totalUnitPriceSum', '0')}")
+                print(f"   • Total Cost: ${summary.get('totalCost', '0')}")
+                print(f"   • Found {len(groups)} quote group(s)")
+                
+                for i, group in enumerate(groups, 1):
+                    print(f"   • Group {i}: Qty {group['quantity']}, "
+                          f"Unit Price ${group['unitPrice']}, "
+                          f"Total ${group['totalPrice']}")
+                    print(f"     Line items: {len(group['lineItems'])}")
+            else:
+                # Fallback for old format
+                print(f"\n📈 SUMMARY:")
+                print(f"   • Found {len(parsed_data)} quote group(s)")
+                for i, group in enumerate(parsed_data, 1):
+                    print(f"   • Group {i}: Qty {group['quantity']}, "
+                          f"Unit Price ${group['unitPrice']}, "
+                          f"Total ${group['totalPrice']}")
+                    print(f"     Line items: {len(group['lineItems'])}")
         
         except Exception as e:
             print(f"⚠️  Could not display summary: {e}")

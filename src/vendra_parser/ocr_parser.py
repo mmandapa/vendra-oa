@@ -815,10 +815,14 @@ class DynamicOCRParser:
         logger.info(f"Dynamically discovered {len(line_items)} line items")
         
         # Use domain-aware parsing to structure the output correctly
-        quote_groups = parse_with_domain_knowledge(line_items)
-        logger.info(f"Created {len(quote_groups)} quote groups using domain knowledge")
+        parsed_result = parse_with_domain_knowledge(line_items)
+        quote_groups = parsed_result.get("groups", [])
+        summary = parsed_result.get("summary", {})
         
-        return quote_groups
+        logger.info(f"Created {len(quote_groups)} quote groups using domain knowledge")
+        logger.info(f"Summary: {summary.get('totalQuantity', 0)} total items, ${summary.get('totalCost', '0')} total cost")
+        
+        return parsed_result
     
     def parse_quote_to_json(self, pdf_path: str, output_path: Optional[str] = None) -> str:
         """Parse quote and return JSON string."""
@@ -838,7 +842,7 @@ class DynamicOCRParser:
 OCRParser = DynamicOCRParser
 
 
-def parse_with_ocr(pdf_path: str) -> List[Dict[str, Any]]:
+def parse_with_ocr(pdf_path: str) -> Dict[str, Any]:
     """
     Parse PDF using dynamic OCR.
     
@@ -846,7 +850,7 @@ def parse_with_ocr(pdf_path: str) -> List[Dict[str, Any]]:
         pdf_path: Path to the PDF file
         
     Returns:
-        List of quote groups
+        Structure with summary totals and quote groups
     """
     parser = DynamicOCRParser()
     return parser.parse_quote(pdf_path) 

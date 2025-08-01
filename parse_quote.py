@@ -95,13 +95,32 @@ def main():
         # Show summary
         try:
             parsed_data = json.loads(result) if isinstance(result, str) else result
-            print(f"\n📈 SUMMARY:")
-            print(f"   • Found {len(parsed_data)} quote group(s)")
-            for i, group in enumerate(parsed_data, 1):
-                print(f"   • Group {i}: Qty {group['quantity']}, "
-                      f"Unit Price ${group['unitPrice']}, "
-                      f"Total ${group['totalPrice']}")
-                print(f"     Line items: {len(group['lineItems'])}")
+            
+            # Handle new structure with summary and groups
+            if isinstance(parsed_data, dict) and "groups" in parsed_data:
+                summary = parsed_data.get("summary", {})
+                groups = parsed_data.get("groups", [])
+                
+                print(f"\n📈 SUMMARY:")
+                print(f"   • Total Quantity: {summary.get('totalQuantity', '0')}")
+                print(f"   • Total Unit Price Sum: ${summary.get('totalUnitPriceSum', '0')}")
+                print(f"   • Total Cost: ${summary.get('totalCost', '0')}")
+                print(f"   • Found {len(groups)} quote group(s)")
+                
+                for i, group in enumerate(groups, 1):
+                    print(f"   • Group {i}: Qty {group['quantity']}, "
+                          f"Unit Price ${group['unitPrice']}, "
+                          f"Total ${group['totalPrice']}")
+                    print(f"     Line items: {len(group['lineItems'])}")
+            else:
+                # Fallback for old format
+                print(f"\n📈 SUMMARY:")
+                print(f"   • Found {len(parsed_data)} quote group(s)")
+                for i, group in enumerate(parsed_data, 1):
+                    print(f"   • Group {i}: Qty {group['quantity']}, "
+                          f"Unit Price ${group['unitPrice']}, "
+                          f"Total ${group['totalPrice']}")
+                    print(f"     Line items: {len(group['lineItems'])}")
         
         except Exception as e:
             print(f"⚠️  Could not display summary: {e}")
