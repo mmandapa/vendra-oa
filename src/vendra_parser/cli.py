@@ -10,9 +10,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from .parser import QuoteParser
-from .advanced_parser import AdvancedQuoteParser
-from .ocr_parser import OCRParser
+from .ocr_parser import OCRParser, DynamicOCRParser
 from .file_picker import get_pdf_via_picker
 
 
@@ -174,7 +172,7 @@ def parse(pdf_path: str, output: Optional[str], verbose: bool):
         logging.getLogger().setLevel(logging.DEBUG)
     
     try:
-        parser = QuoteParser()
+        parser = DynamicOCRParser()
         result = parser.parse_quote_to_json(pdf_path, output)
         
         if not output:
@@ -197,7 +195,7 @@ def parse_advanced(pdf_path: str, output: Optional[str], verbose: bool):
         logging.getLogger().setLevel(logging.DEBUG)
     
     try:
-        parser = AdvancedQuoteParser()
+        parser = DynamicOCRParser()
         result = parser.parse_quote_to_json(pdf_path, output)
         
         if not output:

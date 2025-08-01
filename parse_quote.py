@@ -12,7 +12,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from vendra_parser import QuoteParser, AdvancedQuoteParser
+from vendra_parser import OCRParser, DynamicOCRParser
 
 
 def main():
@@ -46,21 +46,9 @@ def main():
                 
             break
         
-        # Choose parser
-        while True:
-            choice = input("\n🔧 Choose your parser:\n"
-                          "1. Basic Parser (faster, good for standard formats)\n"
-                          "2. Advanced Parser (more thorough, handles complex formats)\n"
-                          "Enter your choice (1-2): ").strip()
-            
-            if choice == "1":
-                parser_type = "basic"
-                break
-            elif choice == "2":
-                parser_type = "advanced"
-                break
-            else:
-                print("❌ Invalid choice. Please enter 1 or 2.")
+        # Using OCR Parser (only available parser)
+        parser_type = "ocr"
+        print("\n🔧 Using OCR Parser (dynamic PDF parsing with OCR capabilities)")
         
         # Get output preference
         while True:
@@ -86,12 +74,9 @@ def main():
         
         # Parse the quote
         print(f"\n🔄 Parsing PDF: {pdf_path}")
-        print(f"📊 Using {parser_type.title()} Parser...")
+        print(f"📊 Using OCR Parser...")
         
-        if parser_type == "basic":
-            parser = QuoteParser()
-        else:
-            parser = AdvancedQuoteParser()
+        parser = DynamicOCRParser()
         
         # Parse and get results
         result = parser.parse_quote_to_json(pdf_path, output_file)

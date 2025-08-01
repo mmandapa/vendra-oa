@@ -1,2 +1,0 @@
-[console_scripts]
-vendra-parser = vendra_parser.cli:cli

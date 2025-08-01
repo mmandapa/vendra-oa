@@ -112,10 +112,35 @@ class DynamicOCRParser:
             return "0"
         
         # Remove currency symbols and extra whitespace
+        original_str = price_str
         price_str = re.sub(r'[\$\€\£\¥]', '', price_str.strip())
         
-        # Remove commas from numbers
-        price_str = re.sub(r',', '', price_str)
+        # Handle different number formats
+        # European format: "1 234,56" or "1.234,56" (space or dot as thousands, comma as decimal)
+        # US format: "1,234.56" (comma as thousands, dot as decimal)
+        
+        # Check if this looks like European format (comma as decimal separator)
+        if ',' in price_str and '.' not in price_str:
+            # European format with comma as decimal: "1 234,56"
+            parts = price_str.split(',')
+            if len(parts) == 2:
+                # Remove spaces from the integer part, keep decimal part
+                integer_part = re.sub(r'\s+', '', parts[0])
+                decimal_part = parts[1]
+                price_str = f"{integer_part}.{decimal_part}"
+        elif ' ' in price_str and (',' not in price_str and '.' not in price_str):
+            # European format with just spaces as thousands separator: "1 234"
+            price_str = re.sub(r'\s+', '', price_str)
+        elif ' ' in price_str and ',' in price_str:
+            # European format: "1 234,56" 
+            parts = price_str.split(',')
+            if len(parts) == 2:
+                integer_part = re.sub(r'\s+', '', parts[0])
+                decimal_part = parts[1]
+                price_str = f"{integer_part}.{decimal_part}"
+        else:
+            # US format: remove commas (thousands separators)
+            price_str = re.sub(r',', '', price_str)
         
         # Extract numeric value (including negative numbers)
         match = re.search(r'(-?[\d]+\.?\d*)', price_str)
@@ -125,7 +150,7 @@ class DynamicOCRParser:
                 # Ensure consistent precision for currency values
                 return str(value.quantize(Decimal('0.01')))
             except InvalidOperation:
-                logger.warning(f"Invalid price format: {price_str}")
+                logger.warning(f"Invalid price format: {original_str} -> {price_str}")
                 return "0"
         
         return "0"
@@ -218,7 +243,7 @@ class DynamicOCRParser:
                 unit_price = Decimal(self.normalize_price(last_three[1]))
                 total = Decimal(self.normalize_price(last_three[2]))
                 
-                if 1 <= qty <= 1000 and unit_price != 0 and total != 0:
+                if 1 <= qty <= 100000 and unit_price != 0 and total != 0:
                     # Validate: qty * unit_price should equal total (with some tolerance)
                     expected_total = qty * unit_price
                     if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
@@ -245,7 +270,7 @@ class DynamicOCRParser:
                 qty = int(last_three[1])
                 total = Decimal(self.normalize_price(last_three[2]))
                 
-                if 1 <= qty <= 1000 and unit_price != 0 and total != 0:
+                if 1 <= qty <= 100000 and unit_price != 0 and total != 0:
                     expected_total = qty * unit_price
                     if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                         # Find description using smart extraction  
@@ -277,7 +302,7 @@ class DynamicOCRParser:
                     unit_price = Decimal(self.normalize_price(numbers[i+1]))
                     total = Decimal(self.normalize_price(numbers[i+2]))
                     
-                    if 1 <= qty <= 1000 and unit_price != 0 and total != 0:
+                    if 1 <= qty <= 100000 and unit_price != 0 and total != 0:
                         expected_total = qty * unit_price
                         if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / abs(total) <= Decimal('0.10'):
                             # Find description using smart extraction
@@ -301,7 +326,7 @@ class DynamicOCRParser:
         for i, num in enumerate(numbers):
             try:
                 qty = int(num)
-                if 1 <= qty <= 1000:
+                if 1 <= qty <= 100000:
                     # Check if this number appears near quantity-related keywords
                     num_pos = line.find(num)
                     context = line[max(0, num_pos-20):num_pos+20].lower()
@@ -345,7 +370,7 @@ class DynamicOCRParser:
         for i, num in enumerate(numbers):
             try:
                 qty = int(num)
-                if 1 <= qty <= 1000:
+                if 1 <= qty <= 100000:
                     # Check if this number appears as a standalone quantity
                     num_pos = line.find(num)
                     
@@ -418,7 +443,7 @@ class DynamicOCRParser:
         if len(numbers) >= 3:
             try:
                 first_qty = int(numbers[0])
-                if 1 <= first_qty <= 1000:
+                if 1 <= first_qty <= 100000:
                     # Try to find unit price and total from the remaining numbers
                     # Look for the last two numbers as unit_price and total
                     unit_price = Decimal(self.normalize_price(numbers[-2]))
@@ -533,7 +558,7 @@ class DynamicOCRParser:
             # Validate the result makes sense
             if rounded_qty <= 0:
                 return "1"
-            elif rounded_qty > 1000:  # Suspiciously high quantity
+            elif rounded_qty > 100000:  # Extremely high quantity - likely calculation error
                 return "1"
             else:
                 # Check if the math works out (within 5% tolerance)
@@ -760,7 +785,7 @@ class DynamicOCRParser:
             numbers = re.findall(r'\b(\d{1,4})\b', line)
             
             for num in numbers:
-                if 1 <= int(num) <= 1000:
+                if 1 <= int(num) <= 100000:
                     # Check if this number appears in a quantity-like context
                     context = text[max(0, text.find(num)-30):text.find(num)+30]
                     
