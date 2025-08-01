@@ -212,108 +212,157 @@ class DynamicOCRParser:
         if re.search(r'\b[A-Z]{2}\s+\d{3}\s+\d{4}\b', line):  # State + area code + phone
             return None
         
-        # Strategy 1: Look for pattern: description + quantity + rate + total
-        # This is more common in manufacturing quotes
+        # Strategy 1: Smart quantity detection with validation
+        # Try multiple approaches and pick the best one
+        candidates = []
+        
         if len(numbers) >= 3:
-            # Take the last 3 numbers (most likely to be qty, rate, total)
+            # Try different combinations of the last 3 numbers
             last_three = numbers[-3:]
             
-            # Find the position of the first of these numbers
-            first_num_pos = line.find(last_three[0])
-            if first_num_pos > 0:
-                description = line[:first_num_pos].strip()
-                description = self._clean_description(description)
-                
-                if self._is_valid_product_description(description):
-                    try:
-                        # Check if the first number looks like a quantity (small integer)
-                        first_num = int(last_three[0])
-                        if 1 <= first_num <= 100:  # Reasonable quantity range
-                            quantity = str(first_num)
-                            unit_price = self.normalize_price(last_three[1])
-                            cost = self.normalize_price(last_three[2])
-                            
-                            if len(description) > 3:
-                                description = self._final_clean_description(description)
-                                return LineItem(
-                                    description=description,
-                                    quantity=quantity,
-                                    unit_price=unit_price,
-                                    cost=cost
-                                )
-                    except (ValueError, InvalidOperation):
-                        pass
-        
-        # Strategy 1.5: Look for pattern: part_number + description + quantity + rate + total
-        # Handle cases where the description starts with a number (part number)
-        if len(numbers) >= 4:
-            # Look for pattern: number + text + number + price + total
-            # This handles: "3 ESTOP_BODY-GEN2_4 6 $395.00 $2,370.00"
-            
-            # Find the position of the second number (quantity)
-            second_num = numbers[1]
-            second_num_pos = line.find(second_num)
-            
-            if second_num_pos > 0:
-                # Everything before the second number is the description (including first number)
-                description = line[:second_num_pos].strip()
-                description = self._clean_description(description)
-                
-                if self._is_valid_product_description(description):
-                    try:
-                        # The second number is the quantity
-                        quantity = str(int(second_num))
-                        unit_price = self.normalize_price(numbers[2])
-                        cost = self.normalize_price(numbers[3])
-                        
-                        if len(description) > 3 and 1 <= int(quantity) <= 100:
-                            description = self._final_clean_description(description)
-                            return LineItem(
-                                description=description,
-                                quantity=quantity,
-                                unit_price=unit_price,
-                                cost=cost
-                            )
-                    except (ValueError, InvalidOperation):
-                        pass
-        
-        # Strategy 2: Look for pattern: quantity + description + rate + total
-        # Check if the line starts with a quantity (small number)
-        if len(numbers) >= 3:
-            first_num = numbers[0]
+            # Approach 1: Assume last_three = [qty, unit_price, total]
             try:
-                first_num_int = int(first_num)
-                if 1 <= first_num_int <= 100:  # Reasonable quantity range
-                    # This might be: quantity + description + rate + total
-                    # Find where the description starts (after the first number)
-                    first_num_pos = line.find(first_num)
-                    if first_num_pos == 0:  # Number is at the start
-                        # Find the position of the second number (rate)
-                        second_num = numbers[1]
-                        second_num_pos = line.find(second_num, first_num_pos + len(first_num))
-                        if second_num_pos > 0:
-                            description = line[first_num_pos + len(first_num):second_num_pos].strip()
+                qty = int(last_three[0])
+                unit_price = Decimal(self.normalize_price(last_three[1]))
+                total = Decimal(self.normalize_price(last_three[2]))
+                
+                if 1 <= qty <= 100 and unit_price > 0 and total > 0:
+                    # Validate: qty * unit_price should equal total (with some tolerance)
+                    expected_total = qty * unit_price
+                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                        # Find description
+                        first_num_pos = line.find(last_three[0])
+                        if first_num_pos > 0:
+                            description = line[:first_num_pos].strip()
                             description = self._clean_description(description)
                             
                             if self._is_valid_product_description(description):
-                                quantity = str(first_num_int)
-                                unit_price = self.normalize_price(second_num)
-                                cost = self.normalize_price(numbers[2])
-                                
-                                if len(description) > 3:
-                                    description = self._final_clean_description(description)
-                                    return LineItem(
-                                        description=description,
-                                        quantity=quantity,
-                                        unit_price=unit_price,
-                                        cost=cost
-                                    )
+                                description = self._final_clean_description(description)
+                                candidates.append({
+                                    'description': description,
+                                    'quantity': str(qty),
+                                    'unit_price': str(unit_price),
+                                    'cost': str(total),
+                                    'confidence': 0.9 if abs(expected_total - total) <= Decimal('0.01') else 0.7
+                                })
+            except (ValueError, InvalidOperation):
+                pass
+            
+            # Approach 2: Assume last_three = [unit_price, qty, total]
+            try:
+                unit_price = Decimal(self.normalize_price(last_three[0]))
+                qty = int(last_three[1])
+                total = Decimal(self.normalize_price(last_three[2]))
+                
+                if 1 <= qty <= 100 and unit_price > 0 and total > 0:
+                    expected_total = qty * unit_price
+                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                        # Find description
+                        second_num_pos = line.find(last_three[1])
+                        if second_num_pos > 0:
+                            description = line[:second_num_pos].strip()
+                            description = self._clean_description(description)
+                            
+                            if self._is_valid_product_description(description):
+                                description = self._final_clean_description(description)
+                                candidates.append({
+                                    'description': description,
+                                    'quantity': str(qty),
+                                    'unit_price': str(unit_price),
+                                    'cost': str(total),
+                                    'confidence': 0.9 if abs(expected_total - total) <= Decimal('0.01') else 0.7
+                                })
             except (ValueError, InvalidOperation):
                 pass
         
-
+        # Strategy 2: Handle part numbers in description
+        if len(numbers) >= 4:
+            # Look for pattern: part_number + description + quantity + unit_price + total
+            # This handles: "3 ESTOP_BODY-GEN2_4 6 $395.00 $2,370.00"
+            
+            # Try different combinations of the middle numbers
+            for i in range(1, len(numbers) - 2):
+                try:
+                    qty = int(numbers[i])
+                    unit_price = Decimal(self.normalize_price(numbers[i+1]))
+                    total = Decimal(self.normalize_price(numbers[i+2]))
+                    
+                    if 1 <= qty <= 100 and unit_price > 0 and total > 0:
+                        expected_total = qty * unit_price
+                        if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                            # Find description (everything before quantity)
+                            qty_pos = line.find(str(qty))
+                            if qty_pos > 0:
+                                description = line[:qty_pos].strip()
+                                description = self._clean_description(description)
+                                
+                                if self._is_valid_product_description(description):
+                                    description = self._final_clean_description(description)
+                                    candidates.append({
+                                        'description': description,
+                                        'quantity': str(qty),
+                                        'unit_price': str(unit_price),
+                                        'cost': str(total),
+                                        'confidence': 0.8 if abs(expected_total - total) <= Decimal('0.01') else 0.6
+                                    })
+                except (ValueError, InvalidOperation):
+                    pass
         
-        # Strategy 3: Look for pattern: description + rate + total (quantity = 1)
+        # Strategy 3: Look for quantity keywords near numbers
+        for i, num in enumerate(numbers):
+            try:
+                qty = int(num)
+                if 1 <= qty <= 100:
+                    # Check if this number appears near quantity-related keywords
+                    num_pos = line.find(num)
+                    context = line[max(0, num_pos-20):num_pos+20].lower()
+                    
+                    if any(keyword in context for keyword in ['qty', 'quantity', 'ea', 'each', 'units', 'pcs']):
+                        # This number is likely a quantity
+                        if i + 2 < len(numbers):
+                            try:
+                                unit_price = Decimal(self.normalize_price(numbers[i+1]))
+                                total = Decimal(self.normalize_price(numbers[i+2]))
+                                
+                                if unit_price > 0 and total > 0:
+                                    expected_total = qty * unit_price
+                                    if abs(expected_total - total) <= Decimal('0.01') or abs(expected_total - total) / total <= Decimal('0.05'):
+                                        # Find description
+                                        if num_pos > 0:
+                                            description = line[:num_pos].strip()
+                                            description = self._clean_description(description)
+                                            
+                                            if self._is_valid_product_description(description):
+                                                description = self._final_clean_description(description)
+                                                candidates.append({
+                                                    'description': description,
+                                                    'quantity': str(qty),
+                                                    'unit_price': str(unit_price),
+                                                    'cost': str(total),
+                                                    'confidence': 0.95  # High confidence due to keyword match
+                                                })
+                            except (ValueError, InvalidOperation):
+                                pass
+            except (ValueError, InvalidOperation):
+                pass
+        
+        # Pick the best candidate
+        if candidates:
+            # Sort by confidence and pick the highest
+            candidates.sort(key=lambda x: x['confidence'], reverse=True)
+            best = candidates[0]
+            
+            logger.info(f"Selected parsing strategy with confidence {best['confidence']:.2f}")
+            logger.info(f"  Quantity: {best['quantity']}, Unit Price: {best['unit_price']}, Total: {best['cost']}")
+            
+            return LineItem(
+                description=best['description'],
+                quantity=best['quantity'],
+                unit_price=best['unit_price'],
+                cost=best['cost']
+            )
+        
+        # Strategy 4: Fallback for simple cases (quantity = 1)
         if len(numbers) >= 2:
             # Take the last 2 numbers
             last_two = numbers[-2:]
