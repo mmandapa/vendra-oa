@@ -149,8 +149,17 @@ class DomainAwareParser:
         if not line_items:
             return {"summary": {}, "groups": []}
         
+        # Filter to only include actual inventory items
+        inventory_items = [item for item in line_items if self._is_inventory_item(item)]
+        
+        if not inventory_items:
+            logger.warning("No valid inventory items found after filtering")
+            return {"summary": {}, "groups": []}
+        
+        logger.info(f"Filtered {len(line_items)} raw items to {len(inventory_items)} inventory items")
+        
         # Group line items by their quantities
-        quantity_groups = self._group_items_by_quantity(line_items)
+        quantity_groups = self._group_items_by_quantity(inventory_items)
         
         # Create quote groups for each quantity level
         quote_groups = []
@@ -292,6 +301,189 @@ class DomainAwareParser:
             unit_price=line_item.unit_price,
             cost=line_item.cost
         )
+    
+    def _is_inventory_item(self, line_item: LineItem) -> bool:
+        """Final check to ensure this is actually an inventory/product item."""
+        desc_lower = line_item.description.lower().strip()
+        
+        # Additional domain-specific filtering for manufacturing quotes
+        
+        # 1. Financial/summary terms
+        financial_terms = [
+            'total', 'subtotal', 'balance', 'summary', 'grand total',
+            'tax', 'vat', 'gst', 'sales tax', 'discount', 'markup', 'surcharge'
+        ]
+        if any(term == desc_lower or desc_lower.startswith(f'{term} ') or desc_lower.endswith(f' {term}') for term in financial_terms):
+            logger.debug(f"Domain filter rejected financial term: {line_item.description}")
+            return False
+        
+        # 2. Payment/business terms
+        payment_terms = [
+            'cod', 'cash on delivery', 'payment', 'deposit', 'credit',
+            'net 30', 'net 60', 'financing'
+        ]
+        if any(term == desc_lower or desc_lower.startswith(f'{term} ') for term in payment_terms):
+            logger.debug(f"Domain filter rejected payment term: {line_item.description}")
+            return False
+        
+        # 3. Service fees and administrative items
+        service_terms = [
+            'consultation', 'design service', 'engineering service',
+            'inspection', 'testing service', 'calibration',
+            'documentation', 'certificate', 'report', 'drawing',
+            'specification', 'quote', 'invoice'
+        ]
+        if any(term == desc_lower or desc_lower.startswith(f'{term} ') for term in service_terms):
+            logger.debug(f"Domain filter rejected service term: {line_item.description}")
+            return False
+        
+        # 4. Time/scheduling terms
+        time_terms = [
+            'lead time', 'delivery time', 'turnaround', 'processing time',
+            'setup time', 'wait time', 'eta'
+        ]
+        if any(term == desc_lower or desc_lower.startswith(f'{term} ') for term in time_terms):
+            logger.debug(f"Domain filter rejected time term: {line_item.description}")
+            return False
+        
+        # 5. Generic fees/charges (but be specific about what constitutes a fee)
+        if self._is_service_fee(desc_lower):
+            logger.debug(f"Domain filter rejected service fee: {line_item.description}")
+            return False
+        
+        # 6. Shipping charges (but not products with shipping in the name)
+        if self._is_shipping_charge(desc_lower):
+            logger.debug(f"Domain filter rejected shipping charge: {line_item.description}")
+            return False
+        
+        # Positive indicators for inventory items
+        inventory_indicators = [
+            # Physical materials
+            'steel', 'aluminum', 'plastic', 'metal', 'alloy', 'rubber',
+            'polycarbonate', 'polypropylene', 'abs', 'nylon', 'ceramic',
+            
+            # Manufacturing components
+            'assembly', 'component', 'part', 'piece', 'unit', 'module',
+            'bracket', 'mount', 'block', 'plate', 'rod', 'tube', 'shaft',
+            'bearing', 'bushing', 'gasket', 'seal', 'fastener', 'screw',
+            'bolt', 'nut', 'washer', 'spring', 'clip', 'pin', 'plug',
+            
+            # Manufacturing processes
+            'machined', 'fabricated', 'welded', 'molded', 'cast',
+            'threaded', 'anodized', 'plated', 'painted', 'coated',
+            
+            # Part number patterns
+            '-', '_', 'rev', 'model', 'type', 'size', 'grade'
+        ]
+        
+        has_inventory_indicators = any(indicator in desc_lower for indicator in inventory_indicators)
+        
+        # Part number pattern (strong indicator)
+        import re
+        has_part_number = bool(re.search(r'[A-Z0-9]+-[A-Z0-9]+|[A-Z]+\d+|REV\s+[A-Z0-9]', line_item.description.upper()))
+        
+        # Must have either inventory indicators or part number pattern
+        is_valid = has_inventory_indicators or has_part_number
+        
+        # RELAXED ACCEPTANCE: Accept reasonable simple product descriptions  
+        # This fixes the issue where simple names like "Widget A" are rejected
+        if not is_valid:
+            # Check if it looks like a reasonable product name
+            words = desc_lower.split()
+            non_digit_words = [w for w in words if not w.replace('.', '').replace(',', '').isdigit()]
+            
+            # Accept if it has reasonable characteristics of a product name
+            if (len(non_digit_words) >= 1 and 2 <= len(line_item.description) <= 50):
+                # Must have at least one word with letters (descriptive content)
+                has_descriptive_content = any(len(word) >= 2 and any(c.isalpha() for c in word) for word in non_digit_words)
+                
+                if has_descriptive_content:
+                    # Final safety check: ensure it's not administrative
+                    admin_blacklist = ['total', 'subtotal', 'balance', 'tax', 'discount', 'payment', 
+                                     'due', 'net', 'amount', 'summary', 'invoice', 'quote']
+                    is_admin = any(term in desc_lower for term in admin_blacklist)
+                    
+                    if not is_admin:
+                        logger.debug(f"Accepted simple product description: {line_item.description}")
+                        is_valid = True
+        
+        if not is_valid:
+            logger.debug(f"Domain filter rejected item without inventory indicators: {line_item.description}")
+        
+        return is_valid
+    
+    def _is_service_fee(self, desc_lower):
+        """Check if description is a service fee rather than a product."""
+        fee_patterns = [
+            r'^(setup|processing|handling|service|administrative|documentation|expedite)\s+(fee|charge)$',
+            r'^(fee|charge)$',
+        ]
+        
+        import re
+        for pattern in fee_patterns:
+            if re.match(pattern, desc_lower):
+                return True
+        
+        return False
+    
+    def _is_shipping_charge(self, desc_lower):
+        """Check if description is a shipping charge vs product name with shipping words."""
+        # Patterns that indicate actual shipping charges (not products)
+        shipping_charge_patterns = [
+            # Standalone shipping terms
+            r'^freight$', r'^shipping$', r'^delivery$', r'^handling$', 
+            r'^postage$', r'^courier$', r'^express$', r'^overnight$',
+            
+            # Shipping with simple descriptors (3 words or less)
+            r'^freight\s+(shipping|cost|charge|fee)$',
+            r'^shipping\s+(and\s+handling|cost|charge|fee)$',
+            r'^delivery\s+(charge|fee|cost)$',
+            r'^handling\s+(charge|fee|cost)$',
+            
+            # Common shipping charge formats
+            r'^rush\s+delivery$', r'^expedited\s+shipping$',
+            r'^standard\s+shipping$', r'^ground\s+shipping$'
+        ]
+        
+        import re
+        for pattern in shipping_charge_patterns:
+            if re.match(pattern, desc_lower):
+                return True
+        
+        # Additional heuristics for shipping charges:
+        words = desc_lower.split()
+        
+        # Single word shipping terms
+        if len(words) == 1 and words[0] in ['freight', 'shipping', 'delivery', 'handling', 'postage']:
+            return True
+        
+        # Two-word combinations that are likely shipping charges
+        if len(words) == 2:
+            first, second = words
+            if (first in ['freight', 'shipping', 'delivery', 'handling'] and 
+                second in ['charge', 'fee', 'cost', 'service']):
+                return True
+        
+        # NOT shipping charges: product names/part numbers that happen to contain shipping words
+        # These typically have:
+        # - Part numbers (letters + numbers + dashes)
+        # - Multiple technical terms
+        # - Specific material/process descriptions
+        
+        # If it has a part number pattern, it's likely a product
+        if re.search(r'[A-Z]+-\d+|[A-Z]+\d+', desc_lower.upper()):
+            return False
+        
+        # If it has material terms, it's likely a product
+        material_terms = ['steel', 'aluminum', 'plastic', 'material', 'polycarbonate', 'metal']
+        if any(term in desc_lower for term in material_terms):
+            return False
+        
+        # If it's a complex description (4+ words), it's likely a product
+        if len(words) >= 4:
+            return False
+        
+        return False
     
     def _clean_description(self, description: str) -> str:
         """Clean up description while preserving manufacturing terminology."""
