@@ -1750,7 +1750,7 @@ class DynamicOCRParser:
         return quantities
     
     def parse_quote(self, pdf_path: str) -> List[Dict[str, Any]]:
-        """Main method to parse quote from PDF using dynamic OCR."""
+        """Main method to parse quote from PDF using dynamic OCR with summary adjustments."""
         logger.info(f"Parsing quote from: {pdf_path}")
         
         # Extract text using OCR
@@ -1765,15 +1765,210 @@ class DynamicOCRParser:
         line_items = self.discover_line_items_dynamically(text)
         logger.info(f"Dynamically discovered {len(line_items)} line items")
         
+        # Extract summary adjustments (tax, shipping, discounts, etc.)
+        adjustments = self.extract_summary_adjustments(text)
+        logger.info(f"Found {len(adjustments)} summary adjustments")
+        
         # Use domain-aware parsing to structure the output correctly
         parsed_result = parse_with_domain_knowledge(line_items)
+        
+        # Apply summary adjustments to calculate final totals
+        if adjustments:
+            parsed_result = self._apply_summary_adjustments(parsed_result, adjustments)
+            logger.info(f"Applied summary adjustments: {[a['type'] for a in adjustments]}")
+        
         quote_groups = parsed_result.get("groups", [])
         summary = parsed_result.get("summary", {})
         
         logger.info(f"Created {len(quote_groups)} quote groups using domain knowledge")
-        logger.info(f"Summary: {summary.get('totalQuantity', 0)} total items, ${summary.get('totalCost', '0')} total cost")
+        logger.info(f"Final totals: {summary.get('totalQuantity', 0)} items, ${summary.get('finalTotal', summary.get('totalCost', '0'))} total cost")
         
         return parsed_result
+    
+    def extract_summary_adjustments(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Extract summary-level adjustments like tax, shipping, discounts that apply to the whole quote.
+        These are different from line items and should be applied to calculate final totals.
+        """
+        adjustments = []
+        lines = text.split('\n')
+        
+        # Patterns for different types of adjustments
+        adjustment_patterns = [
+            # Subtotal patterns
+            (r'^subtotal\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'subtotal'),
+            (r'^sub[\s\-_]*total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'subtotal'),
+            
+            # Tax patterns - both absolute and percentage (percentage first to avoid conflicts)
+            (r'^tax\s*[:$]?\s*(\d+(?:\.\d{1,2})?)\s*%', 'tax_percentage'),
+            (r'^tax\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'tax_amount'),
+            (r'^sales\s+tax\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'tax_amount'),
+            (r'^sales\s+tax\s*[:$]?\s*(\d+(?:\.\d{1,2})?)\s*%', 'tax_percentage'),
+            
+            # Shipping/handling patterns
+            (r'^shipping\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'shipping'),
+            (r'^handling\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'handling'),
+            (r'^freight\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'freight'),
+            (r'^delivery\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'shipping'),
+            
+            # Discount patterns - both absolute and percentage
+            (r'^discount\s*[:$]?\s*-?\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'discount_amount'),
+            (r'^discount\s*[:$]?\s*-?(\d+(?:\.\d{1,2})?)\s*%', 'discount_percentage'),
+            
+            # Total patterns (to verify calculations)
+            (r'^total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'total'),
+            (r'^grand\s+total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'total'),
+            (r'^final\s+total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'total'),
+        ]
+        
+        import re
+        for line in lines:
+            line_clean = line.strip().lower()
+            if not line_clean:
+                continue
+                
+            for pattern, adjustment_type in adjustment_patterns:
+                match = re.match(pattern, line_clean, re.IGNORECASE)
+                if match:
+                    value = match.group(1).replace(',', '')
+                    
+                    # Convert to appropriate type based on adjustment
+                    if 'percentage' in adjustment_type:
+                        numeric_value = float(value)
+                        adjustments.append({
+                            'type': adjustment_type,
+                            'value': numeric_value,
+                            'raw_text': line.strip(),
+                            'is_percentage': True
+                        })
+                    else:
+                        numeric_value = float(value)
+                        adjustments.append({
+                            'type': adjustment_type,
+                            'value': numeric_value,
+                            'raw_text': line.strip(),
+                            'is_percentage': False
+                        })
+                    
+                    logger.debug(f"Found adjustment: {adjustment_type} = {numeric_value} ({'%' if 'percentage' in adjustment_type else '$'})")
+                    break  # Only match first pattern per line
+        
+        return adjustments
+    
+    def _apply_summary_adjustments(self, result: Dict[str, Any], adjustments: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Apply summary adjustments to calculate final totals and include adjustment details in result.
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+        
+        # Get the current subtotal from line items
+        current_subtotal = Decimal(result.get('summary', {}).get('totalCost', '0'))
+        
+        # Track calculations step by step
+        calculation_steps = []
+        running_total = current_subtotal
+        
+        # Sort adjustments by type priority (subtotal first, then adjustments, then total)
+        type_priority = {'subtotal': 1, 'tax_amount': 2, 'tax_percentage': 2, 'shipping': 3, 'handling': 3, 
+                        'freight': 3, 'discount_amount': 4, 'discount_percentage': 4, 'total': 5}
+        
+        sorted_adjustments = sorted(adjustments, key=lambda x: type_priority.get(x['type'], 99))
+        
+        # Apply each adjustment
+        applied_adjustments = []
+        
+        for adj in sorted_adjustments:
+            adj_type = adj['type']
+            adj_value = Decimal(str(adj['value']))
+            
+            if adj_type == 'subtotal':
+                # Verify subtotal matches our calculation
+                if abs(current_subtotal - adj_value) <= Decimal('0.01'):
+                    calculation_steps.append(f"Subtotal: ${adj_value}")
+                else:
+                    logger.warning(f"Subtotal mismatch: calculated ${current_subtotal}, found ${adj_value}")
+                    calculation_steps.append(f"Subtotal (adjusted): ${adj_value}")
+                    running_total = adj_value
+                    
+            elif adj_type == 'tax_percentage':
+                # Apply percentage tax
+                tax_amount = (running_total * adj_value / 100).quantize(Decimal('0.01'), ROUND_HALF_UP)
+                running_total += tax_amount
+                calculation_steps.append(f"Tax ({adj_value}%): +${tax_amount}")
+                applied_adjustments.append({
+                    'type': 'tax',
+                    'description': f"Tax {adj_value}%",
+                    'amount': str(tax_amount),
+                    'percentage': float(adj_value)
+                })
+                
+            elif adj_type == 'tax_amount':
+                # Apply absolute tax amount
+                running_total += adj_value
+                calculation_steps.append(f"Tax: +${adj_value}")
+                applied_adjustments.append({
+                    'type': 'tax',
+                    'description': 'Tax',
+                    'amount': str(adj_value)
+                })
+                
+            elif adj_type in ['shipping', 'handling', 'freight']:
+                # Apply shipping/handling charges
+                running_total += adj_value
+                calculation_steps.append(f"{adj_type.title()}: +${adj_value}")
+                applied_adjustments.append({
+                    'type': adj_type,
+                    'description': adj_type.title(),
+                    'amount': str(adj_value)
+                })
+                
+            elif adj_type == 'discount_percentage':
+                # Apply percentage discount
+                discount_amount = (running_total * adj_value / 100).quantize(Decimal('0.01'), ROUND_HALF_UP)
+                running_total -= discount_amount
+                calculation_steps.append(f"Discount ({adj_value}%): -${discount_amount}")
+                applied_adjustments.append({
+                    'type': 'discount',
+                    'description': f"Discount {adj_value}%",
+                    'amount': str(-discount_amount),
+                    'percentage': float(adj_value)
+                })
+                
+            elif adj_type == 'discount_amount':
+                # Apply absolute discount
+                running_total -= adj_value
+                calculation_steps.append(f"Discount: -${adj_value}")
+                applied_adjustments.append({
+                    'type': 'discount',
+                    'description': 'Discount',
+                    'amount': str(-adj_value)
+                })
+                
+            elif adj_type == 'total':
+                # Verify final total
+                if abs(running_total - adj_value) <= Decimal('0.01'):
+                    calculation_steps.append(f"Total: ${adj_value} ✓")
+                else:
+                    logger.warning(f"Total mismatch: calculated ${running_total}, found ${adj_value}")
+                    calculation_steps.append(f"Total (from document): ${adj_value}")
+                    running_total = adj_value
+        
+        # Update the result with final totals and adjustment details
+        final_total = running_total.quantize(Decimal('0.01'))
+        
+        # Add adjustment information to summary
+        summary = result.get('summary', {})
+        summary['subtotal'] = str(current_subtotal.quantize(Decimal('0.01')))
+        summary['finalTotal'] = str(final_total)
+        summary['adjustments'] = applied_adjustments
+        summary['calculationSteps'] = calculation_steps
+        
+        # Update the main result
+        result['summary'] = summary
+        
+        logger.info(f"Applied {len(applied_adjustments)} adjustments: ${current_subtotal} → ${final_total}")
+        
+        return result
     
     def parse_quote_to_json(self, pdf_path: str, output_path: Optional[str] = None) -> str:
         """Parse quote and return JSON string."""
