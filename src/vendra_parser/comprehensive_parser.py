@@ -18,6 +18,7 @@ class ComprehensivePDFParser:
     """
     
     def __init__(self):
+        # Default method order (will be reordered based on CID detection)
         self.extraction_methods = [
             ('invoice2data', self._extract_with_invoice2data),
             ('multi_format', self._extract_with_multi_format),
@@ -29,6 +30,25 @@ class ComprehensivePDFParser:
         Parse quote using comprehensive approach with automatic currency detection.
         """
         logger.info(f"🔍 Starting comprehensive parsing of: {pdf_path}")
+        
+        # Check if this PDF has significant CID issues
+        has_cid_issues = self._detect_cid_issues(pdf_path)
+        if has_cid_issues:
+            logger.info("🔧 Detected CID font encoding issues - prioritizing OCR fallback")
+            # Reorder methods to prioritize OCR for CID issues
+            self.extraction_methods = [
+                ('ocr_fallback', self._extract_with_ocr_fallback),
+                ('multi_format', self._extract_with_multi_format),
+                ('invoice2data', self._extract_with_invoice2data),
+            ]
+        else:
+            logger.info("✅ No CID issues detected - using standard method priority")
+            # Use standard order for clean PDFs
+            self.extraction_methods = [
+                ('invoice2data', self._extract_with_invoice2data),
+                ('multi_format', self._extract_with_multi_format),
+                ('ocr_fallback', self._extract_with_ocr_fallback),
+            ]
         
         results = []
         
@@ -507,12 +527,20 @@ class ComprehensivePDFParser:
         total_items = sum(len(group.get('lineItems', [])) for group in groups)
         score += min(total_items * 10, 50)  # Up to 50 points for line items
         
-        # Score based on data completeness
+        # Score based on data completeness and penalize CID sequences
+        cid_penalty = 0
         for group in groups:
             line_items = group.get('lineItems', [])
             for item in line_items:
                 completeness = 0
-                if item.get('description', '').strip():
+                description = item.get('description', '').strip()
+                
+                # Check for CID sequences in description (major quality issue)
+                if 'cid:' in description.lower():
+                    cid_penalty += 50  # Heavy penalty for CID sequences
+                    logger.warning(f"Found CID sequences in description: {description[:50]}...")
+                
+                if description:
                     completeness += 1
                 if item.get('quantity', '').strip():
                     completeness += 1
@@ -523,7 +551,41 @@ class ComprehensivePDFParser:
                 
                 score += completeness * 2.5  # Up to 10 points per complete item
         
+        # Apply CID penalty
+        score = max(score - cid_penalty, 0)
+        
         return min(score, 100.0)
+    
+    def _detect_cid_issues(self, pdf_path: str) -> bool:
+        """Detect if a PDF has significant CID font encoding issues."""
+        try:
+            # Quick check using pdfplumber
+            import pdfplumber
+            
+            cid_count = 0
+            total_chars = 0
+            
+            with pdfplumber.open(pdf_path) as pdf:
+                # Check first few pages for CID sequences
+                pages_to_check = min(len(pdf.pages), 3)
+                
+                for i in range(pages_to_check):
+                    text = pdf.pages[i].extract_text()
+                    if text:
+                        total_chars += len(text)
+                        cid_count += text.count('cid:')
+            
+            # If more than 5% of characters are CID sequences, it's a problem
+            if total_chars > 0:
+                cid_ratio = cid_count / total_chars
+                logger.debug(f"CID detection: {cid_count} CID sequences in {total_chars} characters ({cid_ratio:.1%})")
+                return cid_ratio > 0.05
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"CID detection failed: {e}")
+            return False
     
     def _empty_result(self) -> Dict[str, Any]:
         """Return empty result structure."""
