@@ -559,8 +559,8 @@ class DynamicOCRParser:
         if len(numbers) == 2 and '$' in line:
             # Check if this could be quantity=1 case
             try:
-                price = float(numbers[0].replace(',', ''))
-                total = float(numbers[1].replace(',', ''))
+                price = float(self.normalize_price(numbers[0]))
+                total = float(self.normalize_price(numbers[1]))
                 
                 # If price equals total, quantity is likely 1
                 if abs(price - total) < 0.01:
@@ -579,53 +579,155 @@ class DynamicOCRParser:
         return line
     
     def normalize_price(self, price_str: str) -> str:
-        """Normalize price string by removing currency symbols and formatting."""
+        """Normalize price string using babel for proper currency and locale handling."""
         if not price_str:
             return "0"
         
-        # Remove currency symbols and extra whitespace
         original_str = price_str
-        price_str = re.sub(r'[\$\€\£\¥]', '', price_str.strip())
+        
+        try:
+            from babel.numbers import parse_decimal, NumberFormatError
+            
+            # First, try to detect currency from symbols
+            detected_currency = None
+            detected_locale = None
+            
+            # Common currency symbols and their locales
+            currency_to_locale = {
+                '€': 'de_DE',  # German locale for Euro
+                '£': 'en_GB',  # British locale for Pound
+                '¥': 'ja_JP',  # Japanese locale for Yen
+                '₹': 'en_IN',  # Indian locale for Rupee
+                '₽': 'ru_RU',  # Russian locale for Ruble
+                '₩': 'ko_KR',  # Korean locale for Won
+                '$': 'en_US',  # US locale for Dollar
+            }
+            
+            # Check for currency symbols
+            for symbol, locale_code in currency_to_locale.items():
+                if symbol in price_str:
+                    detected_currency = symbol
+                    detected_locale = locale_code
+                    break
+            
+            # If no currency symbol found, try to infer from number format
+            if not detected_currency:
+                # European format detection (comma as decimal separator)
+                if ',' in price_str and '.' in price_str:
+                    # Check if it's European format: "2.311,25" vs US format: "2,311.25"
+                    parts = price_str.split(',')
+                    if len(parts) == 2 and len(parts[1]) == 2 and parts[1].isdigit():
+                        detected_locale = 'de_DE'  # European format
+                    else:
+                        detected_locale = 'en_US'  # US format
+                elif ',' in price_str and '.' not in price_str:
+                    # Pattern like "1 234,56" - likely European
+                    detected_locale = 'de_DE'
+                else:
+                    detected_locale = 'en_US'  # Default to US format
+            
+            # Remove currency symbols for parsing
+            clean_price = re.sub(r'[\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿\$]', '', price_str.strip())
+            
+            # Parse using babel with detected locale
+            try:
+                parsed_value = parse_decimal(clean_price, locale=detected_locale)
+                # Format to 2 decimal places for currency
+                normalized = f"{parsed_value:.2f}"
+                
+                if detected_currency:
+                    logger.debug(f"Babel detected {detected_currency} ({detected_locale}): {original_str} -> {normalized}")
+                else:
+                    logger.debug(f"Babel inferred {detected_locale}: {original_str} -> {normalized}")
+                
+                return normalized
+                
+            except NumberFormatError:
+                # Fallback to manual parsing if babel fails
+                logger.warning(f"Babel failed to parse: {original_str}, falling back to manual parsing")
+                return self._fallback_normalize_price(price_str)
+                
+        except ImportError:
+            # Fallback if babel is not available
+            logger.warning("Babel not available, using fallback currency parsing")
+            return self._fallback_normalize_price(price_str)
+    
+    def _fallback_normalize_price(self, price_str: str) -> str:
+        """Fallback currency normalization when babel is not available."""
+        if not price_str:
+            return "0"
+        
+        # Remove currency symbols
+        price_str = re.sub(r'[\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿\$]', '', price_str.strip())
+        
+        # Simple number format normalization
+        if ',' in price_str and '.' in price_str:
+            # European format: "2.311,25" -> "2311.25"
+            parts = price_str.split(',')
+            if len(parts) == 2 and len(parts[1]) == 2:
+                integer_part = re.sub(r'[\s\.]', '', parts[0])
+                decimal_part = parts[1]
+                price_str = f"{integer_part}.{decimal_part}"
+        
+        # Remove spaces and commas (thousands separators)
+        price_str = re.sub(r'[\s,]', '', price_str)
+        
+        try:
+            from decimal import Decimal
+            value = Decimal(price_str)
+            return f"{value:.2f}"
+        except:
+            return "0"
+    
+    def _normalize_number_format(self, price_str: str, detected_currency: str = None) -> str:
+        """Normalize number format based on detected currency and regional conventions."""
+        
+        # Currencies that commonly use European number format (comma as decimal)
+        european_format_currencies = ['EUR', 'BRL', 'RUB', 'TRY', 'PLN', 'CZK', 'HUF', 'BGN', 'RON', 'HRK', 'UAH', 'BYN', 'MDL', 'GEL', 'AMD', 'AZN', 'KZT', 'KGS', 'TJS', 'TMT', 'UZS']
+        
+        # Currencies that use Asian format (often no decimals)
+        asian_format_currencies = ['JPY', 'CNY', 'KRW', 'SGD', 'HKD']
+        
+        # Determine format based on currency
+        use_european_format = detected_currency in european_format_currencies if detected_currency else False
+        use_asian_format = detected_currency in asian_format_currencies if detected_currency else False
         
         # Handle different number formats
-        # European format: "1 234,56" or "1.234,56" (space or dot as thousands, comma as decimal)
-        # US format: "1,234.56" (comma as thousands, dot as decimal)
-        
-        # Check if this looks like European format (comma as decimal separator)
-        if ',' in price_str and '.' not in price_str:
-            # European format with comma as decimal: "1 234,56"
-            parts = price_str.split(',')
-            if len(parts) == 2:
-                # Remove spaces from the integer part, keep decimal part
-                integer_part = re.sub(r'\s+', '', parts[0])
-                decimal_part = parts[1]
-                price_str = f"{integer_part}.{decimal_part}"
-        elif ' ' in price_str and (',' not in price_str and '.' not in price_str):
-            # European format with just spaces as thousands separator: "1 234"
-            price_str = re.sub(r'\s+', '', price_str)
-        elif ' ' in price_str and ',' in price_str:
-            # European format: "1 234,56" 
-            parts = price_str.split(',')
-            if len(parts) == 2:
-                integer_part = re.sub(r'\s+', '', parts[0])
-                decimal_part = parts[1]
-                price_str = f"{integer_part}.{decimal_part}"
+        if use_european_format:
+            # European format: "1 234,56" or "1.234,56" (space or dot as thousands, comma as decimal)
+            if ',' in price_str and '.' not in price_str:
+                # European format with comma as decimal: "1 234,56"
+                parts = price_str.split(',')
+                if len(parts) == 2:
+                    integer_part = re.sub(r'[\s\.]', '', parts[0])  # Remove both spaces and dots
+                    decimal_part = parts[1]
+                    price_str = f"{integer_part}.{decimal_part}"
+            elif ' ' in price_str and (',' not in price_str and '.' not in price_str):
+                # European format with just spaces as thousands separator: "1 234"
+                price_str = re.sub(r'\s+', '', price_str)
+            elif ' ' in price_str and ',' in price_str:
+                # European format: "1 234,56" 
+                parts = price_str.split(',')
+                if len(parts) == 2:
+                    integer_part = re.sub(r'[\s\.]', '', parts[0])  # Remove both spaces and dots
+                    decimal_part = parts[1]
+                    price_str = f"{integer_part}.{decimal_part}"
+            else:
+                # Remove spaces and dots (thousands separators), keep commas as decimals
+                price_str = re.sub(r'[\s\.]', '', price_str)
+                price_str = price_str.replace(',', '.')
+        elif use_asian_format:
+            # Asian format: often no decimal places, or different separators
+            # Remove all separators and treat as whole numbers
+            price_str = re.sub(r'[\s,\.]', '', price_str)
+            
         else:
-            # US format: remove commas (thousands separators)
+            # US/International format: "1,234.56" (comma as thousands, dot as decimal)
+            # Also handle spaces as thousands separators: "14 287.40"
             price_str = re.sub(r',', '', price_str)
+            price_str = re.sub(r'\s+', '', price_str)  # Remove spaces (thousands separators)
         
-        # Extract numeric value (including negative numbers)
-        match = re.search(r'(-?[\d]+\.?\d*)', price_str)
-        if match:
-            try:
-                value = Decimal(match.group(1))
-                # Ensure consistent precision for currency values
-                return str(value.quantize(Decimal('0.01')))
-            except InvalidOperation:
-                logger.warning(f"Invalid price format: {original_str} -> {price_str}")
-                return "0"
-        
-        return "0"
+        return price_str
     
     def discover_line_items_dynamically(self, text: str) -> List[LineItem]:
         """
@@ -1606,7 +1708,7 @@ class DynamicOCRParser:
             fallback_desc = line[:first_num_pos].strip()
             if len(fallback_desc) > 2:
                 return fallback_desc
-                
+            
         return None
     
     def _is_address_or_contact_line(self, line: str, line_lower: str, numbers: List[str]) -> bool:
@@ -1793,32 +1895,34 @@ class DynamicOCRParser:
         adjustments = []
         lines = text.split('\n')
         
-        # Patterns for different types of adjustments
+        # Patterns for different types of adjustments (multi-currency support)
         adjustment_patterns = [
-            # Subtotal patterns
-            (r'^subtotal\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'subtotal'),
-            (r'^sub[\s\-_]*total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'subtotal'),
+            # Subtotal patterns - multi-currency (improved for European formats)
+            # Handle European format: €2.311,25 -> capture 2.311,25
+            (r'^subtotal\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'subtotal'),
+            (r'^sub[\s\-_]*total\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'subtotal'),
             
             # Tax patterns - both absolute and percentage (percentage first to avoid conflicts)
             (r'^tax\s*[:$]?\s*(\d+(?:\.\d{1,2})?)\s*%', 'tax_percentage'),
-            (r'^tax\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'tax_amount'),
-            (r'^sales\s+tax\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'tax_amount'),
+            (r'^tax\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'tax_amount'),
+            (r'^sales\s+tax\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'tax_amount'),
             (r'^sales\s+tax\s*[:$]?\s*(\d+(?:\.\d{1,2})?)\s*%', 'tax_percentage'),
             
-            # Shipping/handling patterns
-            (r'^shipping\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'shipping'),
-            (r'^handling\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'handling'),
-            (r'^freight\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'freight'),
-            (r'^delivery\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'shipping'),
+            # Shipping/handling patterns - multi-currency
+            (r'^shipping\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'shipping'),
+            (r'^handling\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'handling'),
+            (r'^freight\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'freight'),
+            (r'^delivery\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'shipping'),
             
             # Discount patterns - both absolute and percentage
-            (r'^discount\s*[:$]?\s*-?\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'discount_amount'),
+            (r'^discount\s*[:$]?\s*-?[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'discount_amount'),
             (r'^discount\s*[:$]?\s*-?(\d+(?:\.\d{1,2})?)\s*%', 'discount_percentage'),
             
-            # Total patterns (to verify calculations)
-            (r'^total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'total'),
-            (r'^grand\s+total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'total'),
-            (r'^final\s+total\s*[:$]?\s*\$?(\d+(?:,\d{3})*(?:\.\d{2})?)', 'total'),
+            # Total patterns (to verify calculations) - multi-currency
+            (r'^total\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'total'),
+            (r'^grand\s+total\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'total'),
+            (r'^final\s+total\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'total'),
+            (r'^quote\s+total\s*[:$]?\s*[\$\€\£\¥\₹\₽\₩\₪\₦\₨\₫\₭\₮\₯\₰\₱\₲\₳\₴\₵\₶\₷\₸\₹\₺\₻\₼\₽\₾\₿]?(\d+(?:[,\s\.]\d{3})*(?:[.,]\d{2})?)', 'total'),
         ]
         
         import re
@@ -1830,7 +1934,7 @@ class DynamicOCRParser:
             for pattern, adjustment_type in adjustment_patterns:
                 match = re.match(pattern, line_clean, re.IGNORECASE)
                 if match:
-                    value = match.group(1).replace(',', '')
+                    value = match.group(1)  # Don't remove comma - let babel handle it
                     
                     # Convert to appropriate type based on adjustment
                     if 'percentage' in adjustment_type:
@@ -1842,7 +1946,9 @@ class DynamicOCRParser:
                             'is_percentage': True
                         })
                     else:
-                        numeric_value = float(value)
+                        # Use normalize_price to handle currency formatting
+                        normalized_value = self.normalize_price(value)
+                        numeric_value = float(normalized_value)
                         adjustments.append({
                             'type': adjustment_type,
                             'value': numeric_value,

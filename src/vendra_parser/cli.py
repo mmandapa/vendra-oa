@@ -7,10 +7,14 @@ import click
 import logging
 import os
 import sys
+import json
 from pathlib import Path
 from typing import Optional
 
 from .ocr_parser import OCRParser, DynamicOCRParser
+from .multi_format_parser import MultiFormatPDFParser
+from .invoice2data_parser import Invoice2DataParser
+from .comprehensive_parser import ComprehensivePDFParser
 
 
 def get_pdf_path() -> str:
@@ -61,12 +65,12 @@ def get_output_preference() -> Optional[str]:
 
 
 def get_parser_choice() -> str:
-    """Use OCR parser (the only recommended option)."""
-    print("\n🔧 Using OCR Parser (optimized for all PDF formats)")
+    """Use Multi-Format parser (recommended for all PDF formats)."""
+    print("\n🔧 Using Multi-Format Parser (optimized for all PDF formats)")
     print("   • Handles scanned and text-based documents")
-    print("   • Uses advanced pattern recognition")
+    print("   • Uses multiple extraction methods")
     print("   • Best accuracy for quote extraction")
-    return "ocr"
+    return "multi"
 
 
 @click.group(invoke_without_command=True)
@@ -102,12 +106,13 @@ def interactive_mode():
         
         # Parse the quote
         print(f"\n🔄 Parsing PDF: {pdf_path}")
-        print(f"📊 Using OCR Parser for optimal accuracy...")
+        print(f"📊 Using Comprehensive Parser with automatic currency detection...")
         
-        parser = OCRParser()
+        parser = ComprehensivePDFParser()
         
         # Parse and get results
-        result = parser.parse_quote_to_json(pdf_path, output_file)
+        result = parser.parse_quote(pdf_path)
+        result_json = json.dumps(result, indent=2)
         
         # Display results
         print("\n✅ Parsing completed successfully!")
@@ -115,15 +120,16 @@ def interactive_mode():
         
         if output_file is None or output_file == "both":
             print("\n📋 PARSED RESULTS:")
-            print(result)
+            print(result_json)
         
         if output_file:
+            with open(output_file, 'w') as f:
+                f.write(result_json)
             print(f"\n💾 Results saved to: {output_file}")
         
         # Show summary
         try:
-            import json
-            parsed_data = json.loads(result) if isinstance(result, str) else result
+            parsed_data = result  # result is already a dict from MultiFormatPDFParser
             
             # Handle new structure with summary and groups
             if isinstance(parsed_data, dict) and "groups" in parsed_data:
@@ -228,6 +234,89 @@ def parse_ocr(pdf_path: str, output: Optional[str], verbose: bool):
             print(result)
         
         click.echo("OCR quote parsing completed successfully!")
+        
+    except Exception as e:
+        click.echo(f"Error parsing quote: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command()
+@click.argument('pdf_path', type=click.Path(exists=True))
+@click.option('--output', '-o', type=click.Path(), help='Output JSON file path')
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
+def parse_multi(pdf_path: str, output: Optional[str], verbose: bool):
+    """Parse PDF using multi-format parser (recommended for all PDF types)."""
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    try:
+        parser = MultiFormatPDFParser()
+        result = parser.parse_quote(pdf_path)
+        
+        # Output results
+        if output:
+            with open(output, 'w') as f:
+                json.dump(result, f, indent=2)
+            print(f"✅ Results saved to: {output}")
+        else:
+            print(json.dumps(result, indent=2))
+            
+        click.echo("Multi-format quote parsing completed successfully!")
+        
+    except Exception as e:
+        click.echo(f"Error parsing quote: {e}", err=True)
+        raise click.Abort()
+
+@cli.command()
+@click.argument('pdf_path', type=click.Path(exists=True))
+@click.option('--output', '-o', type=click.Path(), help='Output JSON file path')
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
+def parse_invoice2data(pdf_path: str, output: Optional[str], verbose: bool):
+    """Parse PDF using invoice2data parser (best for invoices and quotes)."""
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    try:
+        parser = Invoice2DataParser()
+        result = parser.parse_quote(pdf_path)
+        
+        # Output results
+        if output:
+            with open(output, 'w') as f:
+                json.dump(result, f, indent=2)
+            print(f"✅ Results saved to: {output}")
+        else:
+            print(json.dumps(result, indent=2))
+            
+        click.echo("Invoice2Data quote parsing completed successfully!")
+        
+    except Exception as e:
+        click.echo(f"Error parsing quote: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command()
+@click.argument('pdf_path', type=click.Path(exists=True))
+@click.option('--output', '-o', type=click.Path(), help='Output JSON file path')
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
+def parse_comprehensive(pdf_path: str, output: Optional[str], verbose: bool):
+    """Parse PDF using comprehensive parser with automatic currency detection and fallbacks."""
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    try:
+        parser = ComprehensivePDFParser()
+        result = parser.parse_quote(pdf_path)
+        
+        # Output results
+        if output:
+            with open(output, 'w') as f:
+                json.dump(result, f, indent=2)
+            print(f"✅ Results saved to: {output}")
+        else:
+            print(json.dumps(result, indent=2))
+            
+        click.echo("Comprehensive quote parsing completed successfully!")
         
     except Exception as e:
         click.echo(f"Error parsing quote: {e}", err=True)
