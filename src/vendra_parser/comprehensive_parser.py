@@ -7,7 +7,7 @@ Combines invoice2data, multi-format parsing, and OCR with automatic currency det
 import logging
 import re
 import json
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
@@ -24,12 +24,31 @@ class ComprehensivePDFParser:
             ('multi_format', self._extract_with_multi_format),
             ('ocr_fallback', self._extract_with_ocr_fallback),
         ]
+        self.detected_currency = None
+        self.currency_symbol = None
     
     def parse_quote(self, pdf_path: str) -> Dict[str, Any]:
         """
         Parse quote using comprehensive approach with automatic currency detection.
         """
         logger.info(f"🔍 Starting comprehensive parsing of: {pdf_path}")
+        
+        # First, extract some text to detect currency
+        try:
+            import pdfplumber
+            with pdfplumber.open(pdf_path) as pdf:
+                sample_text = ""
+                # Get text from first few pages for currency detection
+                for i in range(min(len(pdf.pages), 3)):
+                    page_text = pdf.pages[i].extract_text()
+                    if page_text:
+                        sample_text += page_text
+                
+                # Detect currency from the sample text
+                self.detected_currency, self.currency_symbol = self._detect_currency_from_text(sample_text)
+        except Exception as e:
+            logger.warning(f"Failed to extract text for currency detection: {e}")
+            self.detected_currency, self.currency_symbol = 'USD', '$'
         
         # Check if this PDF has significant CID issues
         has_cid_issues = self._detect_cid_issues(pdf_path)
@@ -66,10 +85,11 @@ class ComprehensivePDFParser:
                     })
                     logger.info(f"✅ {method_name} succeeded with score: {quality_score}")
                     
-                    # If we get a high-quality result, use it
+                    # If we get a high-quality result, use it (but still apply currency formatting)
                     if quality_score >= 80:
                         logger.info(f"🎯 Using high-quality result from {method_name}")
-                        return result
+                        formatted_result = self._apply_currency_formatting(result)
+                        return formatted_result
                 else:
                     logger.warning(f"❌ {method_name} failed or produced invalid result")
             except Exception as e:
@@ -79,7 +99,9 @@ class ComprehensivePDFParser:
         if results:
             best_result = max(results, key=lambda x: x['score'])
             logger.info(f"🏆 Using best result from {best_result['method']} with score: {best_result['score']}")
-            return best_result['result']
+            # Apply currency formatting to the result
+            formatted_result = self._apply_currency_formatting(best_result['result'])
+            return formatted_result
         else:
             logger.error("❌ All extraction methods failed!")
             return self._empty_result()
@@ -586,6 +608,149 @@ class ComprehensivePDFParser:
         except Exception as e:
             logger.debug(f"CID detection failed: {e}")
             return False
+    
+    def _detect_currency_from_text(self, text: str) -> Tuple[str, str]:
+        """Detect currency from text and return currency code and symbol."""
+        try:
+            import currency_symbols
+            from iso4217parse import parse
+            
+            # Common currency symbols and their mappings
+            currency_patterns = {
+                '$': 'USD',
+                '€': 'EUR', 
+                '£': 'GBP',
+                '¥': 'JPY',
+                '₹': 'INR',
+                'C$': 'CAD',
+                'A$': 'AUD',
+                'CHF': 'CHF',
+                'kr': 'SEK',  # Swedish Krona
+                'zł': 'PLN',  # Polish Złoty
+                '₽': 'RUB',   # Russian Ruble
+                '₩': 'KRW',   # Korean Won
+                'R$': 'BRL',  # Brazilian Real
+                'MX$': 'MXN', # Mexican Peso
+                '₨': 'PKR',   # Pakistani Rupee
+                '₦': 'NGN',   # Nigerian Naira
+                '₡': 'CRC',   # Costa Rican Colón
+            }
+            
+            # First, try to find currency symbols in the text
+            detected_currencies = []
+            for symbol, code in currency_patterns.items():
+                # Use regex to find currency symbols followed by numbers
+                pattern = re.escape(symbol) + r'\s*[\d,.]+'
+                matches = re.findall(pattern, text)
+                if matches:
+                    detected_currencies.append((code, symbol, len(matches)))
+                    logger.debug(f"Found currency symbol '{symbol}' -> {code} ({len(matches)} occurrences)")
+            
+            # If multiple currencies found, pick the most frequent one
+            if detected_currencies:
+                # Sort by frequency and pick the most common
+                detected_currencies.sort(key=lambda x: x[2], reverse=True)
+                detected_code, detected_symbol, count = detected_currencies[0]
+                
+                logger.info(f"🔍 Detected currency: {detected_code} ({detected_symbol}) with {count} occurrences")
+                return detected_code, detected_symbol
+            
+            # Fallback: try to parse any currency-like patterns using iso4217parse
+            try:
+                # Look for patterns like "USD 100", "EUR 50", etc.
+                currency_code_pattern = r'\b([A-Z]{3})\s*[\d,.]+'
+                matches = re.findall(currency_code_pattern, text)
+                if matches:
+                    code = matches[0]
+                    # Get symbol from currency_symbols library
+                    try:
+                        symbol = currency_symbols.CurrencySymbols.get_symbol(code)
+                        logger.info(f"🔍 Detected currency from code: {code} ({symbol})")
+                        return code, symbol
+                    except:
+                        # Fallback to common symbols
+                        symbol = currency_patterns.get(code, code)
+                        logger.info(f"🔍 Detected currency from code (fallback): {code} ({symbol})")
+                        return code, symbol
+            except Exception as e:
+                logger.debug(f"iso4217parse failed: {e}")
+            
+            # Default fallback to USD
+            logger.info("🔍 No currency detected, defaulting to USD ($)")
+            return 'USD', '$'
+            
+        except Exception as e:
+            logger.warning(f"Currency detection failed: {e}")
+            return 'USD', '$'
+    
+    def _format_price_with_currency(self, amount: str) -> str:
+        """Format price with detected currency symbol."""
+        if not self.currency_symbol:
+            return amount
+        
+        try:
+            # Handle different currency positioning
+            if self.detected_currency in ['EUR', 'GBP', 'CHF']:
+                # European style: symbol after amount
+                return f"{amount} {self.currency_symbol}"
+            elif self.detected_currency in ['JPY', 'KRW']:
+                # Asian currencies: symbol before, no decimals typically
+                return f"{self.currency_symbol}{amount}"
+            else:
+                # USD and most others: symbol before amount
+                return f"{self.currency_symbol}{amount}"
+        except:
+            return f"{self.currency_symbol}{amount}"
+    
+    def _apply_currency_formatting(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply detected currency formatting to all monetary values in the result."""
+        if not result or not self.currency_symbol:
+            return result
+        
+        try:
+            formatted_result = result.copy()
+            
+            # Format summary monetary values
+            if 'summary' in formatted_result:
+                summary = formatted_result['summary']
+                for key in ['totalUnitPriceSum', 'totalCost', 'subtotal', 'finalTotal']:
+                    if key in summary and summary[key]:
+                        # Only format if it's a numeric string
+                        try:
+                            float(summary[key])
+                            summary[key] = self._format_price_with_currency(summary[key])
+                        except (ValueError, TypeError):
+                            pass  # Skip non-numeric values
+            
+            # Format group monetary values
+            if 'groups' in formatted_result:
+                for group in formatted_result['groups']:
+                    # Format group-level prices
+                    for key in ['unitPrice', 'totalPrice']:
+                        if key in group and group[key]:
+                            try:
+                                float(group[key])
+                                group[key] = self._format_price_with_currency(group[key])
+                            except (ValueError, TypeError):
+                                pass
+                    
+                    # Format line item prices
+                    if 'lineItems' in group:
+                        for item in group['lineItems']:
+                            for key in ['unitPrice', 'cost']:
+                                if key in item and item[key]:
+                                    try:
+                                        float(item[key])
+                                        item[key] = self._format_price_with_currency(item[key])
+                                    except (ValueError, TypeError):
+                                        pass
+            
+            logger.info(f"💰 Applied {self.detected_currency} ({self.currency_symbol}) formatting to all monetary values")
+            return formatted_result
+            
+        except Exception as e:
+            logger.warning(f"Failed to apply currency formatting: {e}")
+            return result
     
     def _empty_result(self) -> Dict[str, Any]:
         """Return empty result structure."""
