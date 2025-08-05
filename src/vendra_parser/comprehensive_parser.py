@@ -534,7 +534,7 @@ class ComprehensivePDFParser:
         return total_items > 0
     
     def _score_result_quality(self, result: Dict[str, Any]) -> float:
-        """Score the quality of extraction result."""
+        """Score the quality of extraction result with emphasis on realistic monetary values."""
         if not result or 'groups' not in result:
             return 0.0
         
@@ -548,6 +548,45 @@ class ComprehensivePDFParser:
         # Score based on number of line items
         total_items = sum(len(group.get('lineItems', [])) for group in groups)
         score += min(total_items * 10, 50)  # Up to 50 points for line items
+        
+        # NEW: Score based on monetary value realism (CRITICAL FIX)
+        total_cost = 0.0
+        realistic_pricing_bonus = 0
+        try:
+            summary = result.get('summary', {})
+            total_cost_str = summary.get('totalCost', '0')
+            # Remove currency symbols and parse
+            import re
+            clean_cost = re.sub(r'[^\d.,]', '', str(total_cost_str))
+            clean_cost = clean_cost.replace(',', '')
+            total_cost = float(clean_cost) if clean_cost else 0.0
+            
+            logger.debug(f"Scoring result with total cost: ${total_cost}")
+            
+            # MAJOR bonus for realistic monetary values
+            if total_cost > 1000:  # Substantial quotes get big bonus
+                realistic_pricing_bonus += 100
+                logger.debug(f"Large quote bonus: +100 points (total: ${total_cost})")
+            elif total_cost > 100:  # Reasonable quotes get medium bonus
+                realistic_pricing_bonus += 50
+                logger.debug(f"Reasonable quote bonus: +50 points (total: ${total_cost})")
+                
+            # Bonus for realistic unit prices
+            for group in groups:
+                for item in group.get('lineItems', []):
+                    unit_price_str = item.get('unitPrice', '0')
+                    clean_price = re.sub(r'[^\d.,]', '', str(unit_price_str))
+                    clean_price = clean_price.replace(',', '')
+                    try:
+                        unit_price = float(clean_price) if clean_price else 0.0
+                        if unit_price > 50:  # High-value items get bonus
+                            realistic_pricing_bonus += 20
+                        elif unit_price > 10:  # Reasonable items get smaller bonus
+                            realistic_pricing_bonus += 10
+                    except:
+                        pass
+        except Exception as e:
+            logger.debug(f"Error parsing monetary values: {e}")
         
         # Score based on data completeness and penalize CID sequences
         cid_penalty = 0
@@ -576,7 +615,18 @@ class ComprehensivePDFParser:
         # Apply CID penalty
         score = max(score - cid_penalty, 0)
         
-        return min(score, 100.0)
+        # Add realistic pricing bonus
+        score += realistic_pricing_bonus
+        
+        # CRITICAL: Penalize unrealistically low values (likely parsing errors)
+        if total_cost < 50 and total_items > 0:
+            score -= 50  # Heavy penalty for unrealistic low totals
+            logger.debug(f"Low value penalty: -50 points (total: ${total_cost})")
+        
+        final_score = min(score, 200.0)  # Increased max score to accommodate bonuses
+        logger.debug(f"Final quality score: {final_score} (base: {score - realistic_pricing_bonus}, pricing bonus: {realistic_pricing_bonus})")
+        
+        return final_score
     
     def _detect_cid_issues(self, pdf_path: str) -> bool:
         """Detect if a PDF has significant CID font encoding issues."""
