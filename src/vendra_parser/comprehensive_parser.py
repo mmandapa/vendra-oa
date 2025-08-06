@@ -41,116 +41,100 @@ class ComprehensivePDFParser:
     
     def parse_quote(self, pdf_path: str) -> Dict[str, Any]:
         """
-        Parse quote using comprehensive approach with intelligent fallback mechanisms.
+        Parse quote using comprehensive approach with automatic currency detection.
         """
         logger.info(f"🔍 Starting comprehensive parsing of: {pdf_path}")
         
-        # Initialize currency detection
-        self.detected_currency, self.currency_symbol = self._detect_currency_from_pdf(pdf_path)
+        # First, extract some text to detect currency
+        try:
+            import pdfplumber
+            with pdfplumber.open(pdf_path) as pdf:
+                sample_text = ""
+                # Get text from first few pages for currency detection
+                for i in range(min(len(pdf.pages), 3)):
+                    page_text = pdf.pages[i].extract_text()
+                    if page_text:
+                        sample_text += page_text
+                
+                # Detect currency from the sample text
+                self.detected_currency, self.currency_symbol = self._detect_currency_from_text(sample_text)
+        except Exception as e:
+            logger.warning(f"Failed to extract text for currency detection: {e}")
+            self.detected_currency, self.currency_symbol = 'USD', '$'
         
-        # Define fallback strategy with quality thresholds
-        fallback_strategy = [
-            {
-                'name': 'invoice2data',
-                'method': self._extract_with_invoice2data,
-                'min_quality': 60,
-                'priority': 1
-            },
-            {
-                'name': 'vendra_parser_cli',
-                'method': self._extract_with_vendra_parser_cli,
-                'min_quality': 50,
-                'priority': 2
-            },
-            {
-                'name': 'multi_format_parser',
-                'method': self._extract_with_multi_format,
-                'min_quality': 40,
-                'priority': 3
-            },
-            {
-                'name': 'ocr_fallback',
-                'method': self._extract_with_ocr_fallback,
-                'min_quality': 30,
-                'priority': 4
-            },
-            {
-                'name': 'manual_extraction',
-                'method': self._extract_manually_with_currency_detection,
-                'min_quality': 20,
-                'priority': 5
-            }
-        ]
-        
-        # Check for CID issues and adjust strategy
+        # Check if this PDF has significant CID issues
         has_cid_issues = self._detect_cid_issues(pdf_path)
         if has_cid_issues:
-            logger.info("🔧 Detected CID font encoding issues - prioritizing OCR methods")
-            # Move OCR methods to higher priority
-            ocr_methods = [m for m in fallback_strategy if 'ocr' in m['name'] or 'manual' in m['name']]
-            other_methods = [m for m in fallback_strategy if 'ocr' not in m['name'] and 'manual' not in m['name']]
-            fallback_strategy = ocr_methods + other_methods
+            logger.info("🔧 Detected CID font encoding issues - prioritizing OCR fallback")
+            # Reorder methods to prioritize OCR for CID issues
+            self.extraction_methods = [
+                ('ocr_fallback', self._extract_with_ocr_fallback),
+                ('invoice2data', self._extract_with_invoice2data),
+            ]
+        else:
+            logger.info("✅ No CID issues detected - using standard method priority")
+            # Use standard order: invoice2data -> vendra-parser CLI -> OCR
+            self.extraction_methods = [
+                ('invoice2data', self._extract_with_invoice2data),
+                ('ocr_fallback', self._extract_with_ocr_fallback),
+            ]
         
-        best_result = None
-        best_score = 0
-        all_results = []
+        results = []
         
-        # Try each method in order
-        for strategy in fallback_strategy:
+        # Try each extraction method
+        for method_name, method_func in self.extraction_methods:
             try:
-                logger.info(f"📊 Trying {strategy['name']} extraction...")
-                result = strategy['method'](pdf_path)
-                
+                logger.info(f"📊 Trying {method_name} extraction...")
+                result = method_func(pdf_path)
                 if result and self._validate_result(result):
-                    # Apply currency formatting
-                    result = self._apply_currency_formatting(result)
-                    
-                    # Score the result
                     quality_score = self._score_result_quality(result)
-                    strategy['actual_score'] = quality_score
-                    
-                    all_results.append({
-                        'method': strategy['name'],
+                    results.append({
+                        'method': method_name,
                         'result': result,
-                        'score': quality_score,
-                        'priority': strategy['priority']
+                        'score': quality_score
                     })
+                    logger.info(f"✅ {method_name} succeeded with score: {quality_score}")
                     
-                    logger.info(f"✅ {strategy['name']} succeeded with score: {quality_score}")
-                    
-                    # Update best result if this is better
-                    if quality_score > best_score:
-                        best_score = quality_score
-                        best_result = result
-                        logger.info(f"🏆 New best result from {strategy['name']} with score: {quality_score}")
-                    
-                    # If we get a high-quality result, we can stop early
-                    if quality_score >= strategy['min_quality'] and quality_score >= 80:
-                        logger.info(f"🎯 High-quality result achieved from {strategy['name']}, stopping fallback chain")
-                        break
-                        
+                    # If we get a high-quality result, use it (but still apply currency formatting)
+                    if quality_score >= 70:  # Reasonable threshold for good results
+                        logger.info(f"🎯 Using high-quality result from {method_name}")
+                        formatted_result = self._apply_currency_formatting(result)
+                        # Convert to the specified format
+                        if isinstance(formatted_result, dict) and 'groups' in formatted_result:
+                            return formatted_result.get('groups', [])
+                        elif isinstance(formatted_result, list):
+                            return formatted_result
+                        else:
+                            return []
                 else:
-                    logger.warning(f"❌ {strategy['name']} failed validation")
-                    
+                    logger.warning(f"❌ {method_name} failed or produced invalid result")
             except Exception as e:
-                logger.warning(f"❌ {strategy['name']} failed with error: {e}")
+                logger.warning(f"❌ {method_name} failed with error: {str(e)}")
+                # Special handling for NumPy compatibility issues
                 if "numpy" in str(e).lower() or "numexpr" in str(e).lower() or "pandas" in str(e).lower():
                     logger.warning(f"🔄 NumPy compatibility issue detected, continuing to next method...")
-                continue
+                    continue
         
-        # If no method succeeded, return empty result
-        if not best_result:
-            logger.error("❌ All parsing methods failed")
-            return self._empty_result()
-        
-        # Log summary of all results
-        logger.info("📋 Parsing Results Summary:")
-        for result_info in all_results:
-            logger.info(f"  {result_info['method']}: {result_info['score']:.1f}")
-        
-        logger.info(f"🏆 Using result from method with score: {best_score:.1f}")
-        
-        return best_result
+        # Select best result
+        if results:
+            best_result = max(results, key=lambda x: x['score'])
+            logger.info(f"🏆 Using best result from {best_result['method']} with score: {best_result['score']}")
+            
+            # Post-process to remove noise items from the result
+            cleaned_result = self._remove_noise_items_from_result(best_result['result'])
+            
+            # Apply currency formatting to the cleaned result
+            formatted_result = self._apply_currency_formatting(cleaned_result)
+            # Convert to the specified format
+            if isinstance(formatted_result, dict) and 'groups' in formatted_result:
+                return formatted_result.get('groups', [])
+            elif isinstance(formatted_result, list):
+                return formatted_result
+            else:
+                return []
+        else:
+            logger.error("❌ All extraction methods failed!")
+            return []
     
     def _extract_with_invoice2data(self, pdf_path: str) -> Optional[Dict[str, Any]]:
         """Extract using invoice2data library with proper fallback to vendra-parser CLI."""
@@ -1173,43 +1157,47 @@ class ComprehensivePDFParser:
         # For now, fall back to manual extraction
         return None
     
-    def _format_result(self, line_items: List) -> Dict[str, Any]:
-        """Format line items into our standard result format."""
+    def _format_result(self, line_items: List) -> List[Dict[str, Any]]:
+        """Format line items into the specified JSON format with groups."""
         if not line_items:
-            return self._empty_result()
+            return []
         
-        # Group items by quantity and unit price
-        groups = []
+        # Group items by similar quantities and unit prices
+        from collections import defaultdict
+        groups = defaultdict(list)
+        
         for item in line_items:
-            groups.append({
-                'quantity': item.quantity,
-                'unitPrice': item.unit_price,
-                'totalPrice': item.cost,
-                'lineItems': [{
+            # Create a key based on quantity and unit price for grouping
+            key = (item.quantity, item.unit_price)
+            groups[key].append(item)
+        
+        result_groups = []
+        
+        for (quantity, unit_price), items in groups.items():
+            # Calculate total price for this group
+            total_price = sum(float(item.cost) for item in items)
+            
+            # Format line items for this group
+            line_items_formatted = []
+            for item in items:
+                line_items_formatted.append({
                     'description': item.description,
                     'quantity': item.quantity,
                     'unitPrice': item.unit_price,
                     'cost': item.cost
-                }]
-            })
+                })
+            
+            # Create group object in the specified format
+            group = {
+                'quantity': quantity,
+                'unitPrice': unit_price,
+                'totalPrice': f"{total_price:.2f}",
+                'lineItems': line_items_formatted
+            }
+            
+            result_groups.append(group)
         
-        # Calculate summary
-        total_qty = sum(int(item.quantity) for item in line_items)
-        total_cost = sum(float(item.cost) for item in line_items)
-        
-        return {
-            'summary': {
-                'totalQuantity': str(total_qty),
-                'totalUnitPriceSum': '0.00',
-                'totalCost': f"{total_cost:.2f}",
-                'numberOfGroups': len(groups),
-                'subtotal': '0.00',
-                'finalTotal': f"{total_cost:.2f}",
-                'adjustments': [],
-                'calculationSteps': []
-            },
-            'groups': groups
-        }
+        return result_groups
     
     def _validate_result(self, result: Dict[str, Any]) -> bool:
         """Validate that a result is reasonable."""
@@ -1355,24 +1343,6 @@ class ComprehensivePDFParser:
             logger.debug(f"CID detection failed: {e}")
             return False
     
-    def _detect_currency_from_pdf(self, pdf_path: str) -> Tuple[str, str]:
-        """Detect currency from PDF file."""
-        try:
-            import pdfplumber
-            with pdfplumber.open(pdf_path) as pdf:
-                sample_text = ""
-                # Get text from first few pages for currency detection
-                for i in range(min(len(pdf.pages), 3)):
-                    page_text = pdf.pages[i].extract_text()
-                    if page_text:
-                        sample_text += page_text
-                
-                # Detect currency from the sample text
-                return self._detect_currency_from_text(sample_text)
-        except Exception as e:
-            logger.warning(f"Failed to extract text for currency detection: {e}")
-            return 'USD', '$'
-    
     def _detect_currency_from_text(self, text: str) -> Tuple[str, str]:
         """Detect currency from text using enhanced libraries."""
         if not ENHANCED_LIBS_AVAILABLE:
@@ -1381,7 +1351,14 @@ class ComprehensivePDFParser:
         
         try:
             # Use currency_symbols library to get all known symbols
-            all_symbols = currency_symbols.CurrencySymbols.get_all_symbols()
+            try:
+                all_symbols = currency_symbols.CurrencySymbols.get_all_symbols()
+            except AttributeError:
+                # Fallback if the method doesn't exist
+                all_symbols = {
+                    'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'INR': '₹',
+                    'CAD': 'C$', 'AUD': 'A$', 'MXN': 'MX$', 'BRL': 'R$'
+                }
             
             # Create a comprehensive mapping of symbols to currency codes
             symbol_to_code = {}
@@ -1396,6 +1373,7 @@ class ComprehensivePDFParser:
                         symbol_to_code['R$'] = 'BRL'
                     elif symbol == '€':
                         symbol_to_code['EUR'] = 'EUR'
+                        symbol_to_code['€'] = 'EUR'  # Ensure Euro symbol is mapped
                     elif symbol == '£':
                         symbol_to_code['GBP'] = 'GBP'
                     elif symbol == '¥':

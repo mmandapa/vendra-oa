@@ -1,333 +1,68 @@
 # Vendra Quote Parser
 
-A robust Python-based parser for extracting structured quote data from supplier PDFs. This tool is designed to handle various quote formats and extract pricing information, quantities, and line items into a standardized JSON format.
-
-## 🏗️ Project Structure
-
-```
-vendra-oa/
-├── src/
-│   └── vendra_parser/
-│       ├── __init__.py          # Package initialization
-│       ├── models.py            # Data models (LineItem, QuoteGroup)
-│       ├── parser.py            # Basic quote parser
-│       ├── advanced_parser.py   # Enhanced parser with fallback strategies
-│       └── cli.py               # Command-line interface
-├── tests/
-│   ├── __init__.py
-│   └── test_parser.py           # Test suite
-├── examples/
-│   └── example_usage.py         # Usage examples and demonstrations
-├── docs/                        # Documentation
-├── requirements.txt             # Python dependencies
-├── setup.py                     # Package setup
-├── pyproject.toml              # Modern Python packaging
-├── parse_quote.py              # Simple standalone script
-└── README.md                   # This file
-```
-
-## ✨ Features
-
-- **Multi-format PDF Support**: Handles various PDF formats and layouts
-- **Intelligent Pattern Matching**: Uses regex patterns to extract pricing data
-- **Quantity Grouping**: Automatically groups quotes by quantity
-- **Price Normalization**: Handles different currency formats and symbols
-- **Line Item Extraction**: Identifies and extracts individual cost components
-- **Robust Error Handling**: Graceful fallbacks for malformed data
-- **User-Friendly Interface**: Interactive prompts for easy PDF upload
-- **Modular Design**: Clean separation of concerns with organized codebase
-
-## 🚀 Installation
-
-### Option 1: Install from source
-```bash
-git clone <repository-url>
-cd vendra-oa
-pip install -e .
-```
-
-### Option 2: Install dependencies only
-```bash
-pip install -r requirements.txt
-```
-
-### Option 3: Development installation
-```bash
-pip install -e ".[dev]"
-```
-
-## 📖 Usage
-
-### 🎯 **EASY WAY: Interactive Mode (Recommended)**
-
-Simply run the parser and follow the prompts:
-
-```bash
-# Method 1: Using the installed CLI
-vendra-parser
-
-# Method 2: Using the standalone script
-python parse_quote.py
-```
-
-The tool will:
-1. 📄 **Prompt you to upload your PDF** - Just enter the file path
-2. 🔧 **Let you choose the parser** - Basic (faster) or Advanced (more thorough)
-3. 💾 **Ask how to save results** - Terminal, JSON file, or both
-4. 📊 **Parse and display results** - With a nice summary
-
-### 🔧 **ADVANCED WAY: Direct CLI Commands**
-
-#### Basic Parser
-```bash
-# Parse a PDF quote and output to terminal
-vendra-parser parse path/to/quote.pdf
-
-# Parse and save to JSON file
-vendra-parser parse path/to/quote.pdf --output result.json
-
-# Enable verbose logging
-vendra-parser parse path/to/quote.pdf --verbose
-```
-
-#### Advanced Parser
-```bash
-# Use enhanced parser with sophisticated pattern matching
-vendra-parser parse-advanced path/to/quote.pdf --output result.json
-```
-
-#### Version Information
-```bash
-vendra-parser version
-```
-
-### 🐍 **Python API**
-
-```python
-from vendra_parser import QuoteParser, AdvancedQuoteParser
-
-# Basic parser
-parser = QuoteParser()
-result = parser.parse_quote("path/to/quote.pdf")
-
-# Advanced parser
-advanced_parser = AdvancedQuoteParser()
-result = advanced_parser.parse_quote("path/to/quote.pdf")
-
-# Save to JSON
-json_result = parser.parse_quote_to_json("path/to/quote.pdf", "output.json")
-```
-
-### 🧪 **Running Examples and Tests**
-
-```bash
-# Run the example demonstration
-python examples/example_usage.py
-
-# Run tests
-python tests/test_parser.py
-```
-
-## 📊 Output Format
-
-The parser outputs structured JSON data in the following format:
-
-### Single Quote Group
-```json
-{
-  "quantity": "12",
-  "unitPrice": "455",
-  "totalPrice": "3926.04",
-  "lineItems": [
-    {
-      "description": "BASE",
-      "quantity": "6",
-      "unitPrice": "240.92",
-      "cost": "1445.52"
-    },
-    {
-      "description": "SOLDER",
-      "quantity": "6",
-      "unitPrice": "213.42",
-      "cost": "1280.52"
-    },
-    {
-      "description": "TOOLING",
-      "quantity": "1",
-      "unitPrice": "2000",
-      "cost": "2000"
-    }
-  ]
-}
-```
-
-### Multiple Quote Groups
-```json
-[
-  {
-    "quantity": "1",
-    "unitPrice": "600",
-    "totalPrice": "600",
-    "lineItems": [...]
-  },
-  {
-    "quantity": "3",
-    "unitPrice": "500",
-    "totalPrice": "1500",
-    "lineItems": [...]
-  },
-  {
-    "quantity": "5",
-    "unitPrice": "455",
-    "totalPrice": "2275",
-    "lineItems": [...]
-  }
-]
-```
-
-## 🔧 Technical Approach
-
-### 1. PDF Text Extraction
-- Uses `pdfplumber` library for reliable text extraction
-- Handles multi-page PDFs
-- Preserves text structure and formatting
-
-### 2. Pattern Matching Strategy
-The parser employs multiple strategies for data extraction:
-
-#### Price Detection
-- Currency symbol removal (`$`, `€`, `£`, `¥`)
-- Comma-separated number handling
-- Decimal precision preservation
-- Multiple currency format support
-
-#### Quantity Extraction
-- Explicit quantity patterns (`Qty: 12`, `Quantity: 5`)
-- Unit indicators (`pieces`, `units`, `ea`)
-- Context-aware number detection
-- Table format parsing
-
-#### Line Item Identification
-- Structured table parsing
-- Keyword-based extraction
-- Multi-column data handling
-- Fallback pattern matching
-
-### 3. Data Normalization
-- Price standardization (removes currency symbols, commas)
-- Quantity validation (ensures reasonable ranges)
-- Description cleaning (removes extra whitespace)
-- Cost calculation validation
-
-### 4. Error Handling and Fallbacks
-- Graceful handling of malformed PDFs
-- Default values for missing data
-- Multiple extraction strategies
-- Comprehensive logging
-
-## 🧪 Testing
-
-### Run Tests
-```bash
-# Run all tests
-python tests/test_parser.py
-
-# Run with pytest (if installed)
-pytest tests/
-
-# Run with coverage
-pytest --cov=vendra_parser tests/
-```
-
-### Test Coverage
-The test suite covers:
-- Price normalization
-- Quantity extraction
-- Line item parsing
-- Basic and advanced parsers
-- Error handling scenarios
-
-## 📚 Documentation
-
-- **README.md**: This file - overview and quick start
-- **docs/TECHNICAL_WRITEUP.md**: Detailed technical approach and improvement ideas
-- **examples/**: Usage examples and demonstrations
-- **tests/**: Test suite and examples
-
-## 🔄 Development
-
-### Project Structure Benefits
-- **Modularity**: Each component has a single responsibility
-- **Testability**: Easy to test individual components
-- **Maintainability**: Clear separation of concerns
-- **Extensibility**: Easy to add new features or parsers
-- **Packaging**: Proper Python package structure for distribution
-
-### Adding New Features
-1. Add new parser logic to `src/vendra_parser/`
-2. Update models in `src/vendra_parser/models.py` if needed
-3. Add tests in `tests/`
-4. Update CLI in `src/vendra_parser/cli.py` if needed
-5. Update documentation
-
-### Code Quality
-```bash
-# Format code
-black src/ tests/ examples/
-
-# Lint code
-flake8 src/ tests/ examples/
-
-# Type checking
-mypy src/
-```
-
-## 📋 Assumptions and Fallbacks
-
-### Core Assumptions
-1. **Data Structure**: Quotes contain structured or semi-structured data
-2. **Format**: Prices are in decimal format, quantities are whole numbers
-3. **Currency**: Primarily USD with support for other currencies
-4. **Text**: PDFs contain readable and extractable text
-
-### Fallback Strategies
-1. **Missing Quantity**: Defaults to quantity of 1
-2. **Missing Line Items**: Creates basic "TOTAL" line item
-3. **Invalid Prices**: Sets price to 0 and logs warning
-4. **Pattern Matching**: Multiple extraction strategies with graceful degradation
-
-## 🚀 Ideas for Improvement
-
-### Accuracy Enhancements
-1. **Machine Learning**: Train models on historical quote data
-2. **OCR Enhancement**: Improve text extraction accuracy
-3. **Template Matching**: Create format-specific templates
-4. **Validation Rules**: Add business logic validation
-
-### Reliability Improvements
-1. **Confidence Scoring**: Rate extraction confidence
-2. **Manual Review**: Flag uncertain extractions
-3. **Format Detection**: Automatically detect quote format
-4. **Version Control**: Track parser version compatibility
-
-### Performance Optimizations
-1. **Parallel Processing**: Handle multiple PDFs concurrently
-2. **Caching**: Cache common patterns and results
-3. **Streaming**: Process large PDFs in chunks
-4. **Memory Optimization**: Reduce memory footprint
-
-## 📄 License
-
-This project is part of the Vendra Intern Coding Challenge (Fall 2025).
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
-
-## 📞 Support
-
-For questions or issues, please refer to the technical documentation or contact the development team. 
+## How Different Quote Formats Are Handled
+
+The parser employs a multi-layered approach to handle various quote formats:
+
+**Multi-Format PDF Processing**: Uses multiple libraries (pdfplumber, PyMuPDF, OCR) to extract text from different PDF types - table-based documents, text-based documents, and scanned images.
+
+**Adaptive Pattern Matching**: Implements comprehensive regex patterns that detect various price formats ($1,234.56, 1,234.56 €, 1234.56), quantity indicators (Qty: 12, 5 pieces, 3 units), and line item structures.
+
+**Intelligent Content Filtering**: Filters out non-inventory content like phone numbers, addresses, and metadata while preserving relevant line items using domain-specific patterns for manufacturing components.
+
+**Dynamic Line Item Discovery**: Uses machine learning-based classification to identify line items from unstructured text, with confidence scoring to determine if text represents actual inventory items.
+
+## Assumptions and Fallbacks Used
+
+**Core Assumptions**:
+- Quotes contain structured or semi-structured pricing data
+- Prices are in decimal format with currency symbols
+- Quantities are whole numbers or simple fractions
+- Line items have descriptions, quantities, and unit prices
+
+**Fallback Strategies**:
+- **Missing Quantity**: Defaults to quantity of 1 if not detected
+- **Invalid Prices**: Sets price to 0.00 and logs warnings
+- **No Line Items**: Creates basic "TOTAL" line item with extracted summary data
+- **Multiple Extraction Methods**: If one method fails, tries alternative approaches (pdfplumber → PyMuPDF → OCR)
+- **Pattern Degradation**: Falls back to simpler patterns if complex regex fails
+- **Domain Knowledge**: Uses manufacturing-specific keywords and patterns when general extraction fails
+
+**Error Handling**:
+- Graceful handling of malformed PDFs with empty result structures
+- Comprehensive logging for debugging extraction issues
+- Validation of extracted data before returning results
+
+## Ideas for Improving Accuracy and Reliability
+
+**Machine Learning Enhancements**:
+- Train custom models on historical quote data to improve line item classification
+- Implement confidence scoring for all extracted fields
+- Use NLP techniques to better understand context and relationships between data
+
+**Template-Based Processing**:
+- Create format-specific templates for common supplier quote layouts
+- Implement template matching to automatically detect quote format
+- Build a template library that can be easily extended for new suppliers
+
+**Advanced OCR Improvements**:
+- Implement table structure detection for complex layouts
+- Use computer vision to identify and extract data from images
+- Add support for handwritten text recognition
+
+**Validation and Quality Assurance**:
+- Add business logic validation (e.g., total should equal sum of line items)
+- Implement cross-reference checking between different extraction methods
+- Create a manual review interface for uncertain extractions
+
+**Performance and Scalability**:
+- Parallel processing for multiple PDFs
+- Caching of common patterns and extraction results
+- Streaming processing for large documents
+- Memory optimization for handling large quote files
+
+**User Experience Improvements**:
+- Interactive correction interface for manual adjustments
+- Preview mode showing extraction confidence levels
+- Batch processing with progress tracking
+- Export to various formats (CSV, Excel, JSON) 

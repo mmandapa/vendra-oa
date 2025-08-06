@@ -1,24 +1,22 @@
 """
-Vendra Quote Parser Package
+Vendra Quote Parser
 
-A robust OCR-based parser for extracting structured quote data from supplier PDFs.
+A robust Python-based parser for extracting structured quote data from supplier PDFs.
 """
 
 __version__ = "1.0.0"
 __author__ = "Vendra Intern Coding Challenge"
-__description__ = "OCR-based quote parser for extracting structured data from supplier PDFs"
+__email__ = "mmandapa@ucsc.edu"
 
-# Import main classes for OCR parsing
+from .comprehensive_parser import ComprehensivePDFParser
+from .multi_format_parser import MultiFormatPDFParser
 from .ocr_parser import OCRParser, DynamicOCRParser
-from .domain_parser import DomainAwareParser, ManufacturingAbbreviationHandler
-from .models import LineItem, QuoteGroup
+from .invoice2data_parser import Invoice2DataParser
 
-# Public API - OCR parsing only
 __all__ = [
+    "ComprehensivePDFParser",
+    "MultiFormatPDFParser", 
     "OCRParser",
     "DynamicOCRParser",
-    "DomainAwareParser",
-    "ManufacturingAbbreviationHandler",
-    "LineItem",
-    "QuoteGroup"
+    "Invoice2DataParser",
 ] 
