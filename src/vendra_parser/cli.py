@@ -205,7 +205,7 @@ def interactive_mode():
         
         # Parse the quote with progress indicator
         print_info(f"Parsing PDF: {pdf_path}")
-        print_step("Using comprehensive parser with automatic currency detection...")
+        print_step("Using parser...")
         
         with Progress(
             SpinnerColumn(),
@@ -400,7 +400,7 @@ def parse(pdf_path: str, output: Optional[str], verbose: bool, summary_only: boo
     
     if not quiet:
         print_info(f"Parsing PDF: {pdf_path}")
-        print_step("Using comprehensive parser with automatic currency detection...")
+        print_step("Using parser...")
     
     if quiet:
         # Headless mode - just parse without any output
