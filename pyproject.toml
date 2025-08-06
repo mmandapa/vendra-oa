@@ -47,7 +47,7 @@ dev = [
 ]
 
 [project.scripts]
-vendra-parser = "vendra_parser.cli:cli"
+vendra-parser = "vendra_parser.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/mmandapa/vendra-oa"

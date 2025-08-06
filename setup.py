@@ -40,7 +40,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "vendra-parser=vendra_parser.cli:cli",
+            "vendra-parser=vendra_parser.cli:main",
         ],
     },
     include_package_data=True,

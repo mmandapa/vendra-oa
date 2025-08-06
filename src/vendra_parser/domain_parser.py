@@ -306,20 +306,24 @@ class DomainAwareParser:
         """Final check to ensure this is actually an inventory/product item."""
         desc_lower = line_item.description.lower().strip()
         
+        # Special handling for discount/adjustment line items
+        if self._is_discount_or_adjustment_line_item(line_item):
+            return True
+        
         # Additional domain-specific filtering for manufacturing quotes
         
         # 1. Financial/summary terms
         financial_terms = [
             'total', 'subtotal', 'balance', 'summary', 'grand total',
-            'tax', 'vat', 'gst', 'sales tax', 'discount', 'markup', 'surcharge'
+            'tax', 'vat', 'gst', 'sales tax', 'markup', 'surcharge'
         ]
         if any(term == desc_lower or desc_lower.startswith(f'{term} ') or desc_lower.endswith(f' {term}') for term in financial_terms):
             logger.debug(f"Domain filter rejected financial term: {line_item.description}")
             return False
         
-        # 2. Payment/business terms
+        # 2. Payment/business terms (but not discount/adjustment line items)
         payment_terms = [
-            'cod', 'cash on delivery', 'payment', 'deposit', 'credit',
+            'payment', 'deposit', 'credit',
             'net 30', 'net 60', 'financing'
         ]
         if any(term == desc_lower or desc_lower.startswith(f'{term} ') for term in payment_terms):
@@ -351,10 +355,11 @@ class DomainAwareParser:
             logger.debug(f"Domain filter rejected service fee: {line_item.description}")
             return False
         
-        # 6. Shipping charges (but not products with shipping in the name)
+        # 6. Shipping charges - these ARE valid line items in quotes!
+        # Shipping charges are legitimate costs that should be included
         if self._is_shipping_charge(desc_lower):
-            logger.debug(f"Domain filter rejected shipping charge: {line_item.description}")
-            return False
+            logger.debug(f"Domain filter accepted shipping charge as valid line item: {line_item.description}")
+            return True
         
         # Positive indicators for inventory items
         inventory_indicators = [
@@ -411,6 +416,31 @@ class DomainAwareParser:
             logger.debug(f"Domain filter rejected item without inventory indicators: {line_item.description}")
         
         return is_valid
+    
+    def _is_discount_or_adjustment_line_item(self, line_item: LineItem) -> bool:
+        """Check if line item represents a discount or adjustment that should be included."""
+        desc_lower = line_item.description.lower().strip()
+        
+        # Check for discount/adjustment indicators
+        discount_indicators = [
+            'cod', 'cash on delivery', 'discount', 'rebate', 'credit', 'adjustment',
+            'deduction', 'reduction', 'markdown', 'savings', 'promotion'
+        ]
+        
+        has_discount_term = any(term in desc_lower for term in discount_indicators)
+        
+        # Check for negative amounts (common for discounts)
+        try:
+            cost = float(line_item.cost)
+            has_negative_amount = cost < 0
+        except (ValueError, TypeError):
+            has_negative_amount = False
+        
+        # Check if it's a short description (typical for adjustments)
+        is_short_description = len(line_item.description.strip()) <= 30
+        
+        # Must have either discount terms or negative amount with short description
+        return has_discount_term or (has_negative_amount and is_short_description)
     
     def _is_service_fee(self, desc_lower):
         """Check if description is a service fee rather than a product."""

@@ -62,25 +62,32 @@ class Invoice2DataParser:
     def _extract_with_invoice2data(self, pdf_path: str) -> Optional[Dict[str, Any]]:
         """Extract using invoice2data library."""
         try:
-            # Use the correct import paths for invoice2data
             from invoice2data import extract_data
             from invoice2data.input import pdftotext
-            from invoice2data.extract.loader import read_templates
+            import logging
+            import sys
+            import os
+            from contextlib import redirect_stderr
             
-            # Load templates
-            templates = read_templates()
+            # Temporarily suppress all stderr output to avoid "No template" errors
+            original_stderr = sys.stderr
+            null_stderr = open(os.devnull, 'w')
             
-            # Extract text from PDF
-            text = pdftotext.to_text(pdf_path)
-            
-            # Try to extract structured data
-            result = extract_data(text, templates)
-            
-            if result:
-                return self._convert_invoice2data_result(result)
-            else:
-                # If invoice2data doesn't find a template match, extract line items manually
-                return self._extract_line_items_manually(text)
+            try:
+                with redirect_stderr(null_stderr):
+                    # Try invoice2data extraction
+                    extracted_data = extract_data(pdf_path, input_module=pdftotext)
+                
+                if extracted_data:
+                    logger.info("📄 invoice2data extracted structured data")
+                    # Convert to our format
+                    return self._convert_invoice2data_result(extracted_data)
+                else:
+                    logger.info("📄 invoice2data found no template, falling back to manual extraction")
+                    return self._extract_line_items_manually_from_pdf(pdf_path)
+                    
+            finally:
+                null_stderr.close()
                 
         except Exception as e:
             logger.warning(f"invoice2data extraction failed: {str(e)}")
@@ -149,8 +156,11 @@ class Invoice2DataParser:
                     if text:
                         all_text += text + "\n"
                 
+                # Clean the text to remove HTML artifacts and encoding issues
+                cleaned_text = self._clean_extracted_text(all_text)
+                
                 # Filter out non-inventory content before processing
-                filtered_text = self._filter_non_inventory_content(all_text)
+                filtered_text = self._filter_non_inventory_content(cleaned_text)
                 return self._extract_line_items_manually(filtered_text)
                 
         except Exception as e:
@@ -689,6 +699,65 @@ class Invoice2DataParser:
             return [combined_line]
         
         return individual_items
+    
+    def _clean_extracted_text(self, text: str) -> str:
+        """Clean extracted text to remove HTML artifacts and encoding issues."""
+        import re
+        
+        # Remove HTML-like artifacts
+        text = re.sub(r'<0a>', '\n', text)
+        text = re.sub(r'<[0-9a-f]{2}>', '', text)
+        
+        # Remove error messages
+        text = re.sub(r'Internal Error:.*?\.', '', text, flags=re.DOTALL)
+        text = re.sub(r'Cannot handle URI.*?\.', '', text, flags=re.DOTALL)
+        
+        # Remove very long words (likely encoding issues)
+        text = re.sub(r'\b[A-Za-z]{20,}\b', '', text)
+        
+        # Remove excessive whitespace
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Remove lines that are mostly special characters
+        lines = text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            # Skip lines that are mostly special characters
+            if len(line.strip()) > 0:
+                alphanumeric_ratio = len(re.findall(r'[A-Za-z0-9]', line)) / len(line) if line else 0
+                if alphanumeric_ratio > 0.3:  # At least 30% alphanumeric
+                    cleaned_lines.append(line)
+        
+        return '\n'.join(cleaned_lines)
+    
+    def _is_garbled_text(self, text: str) -> bool:
+        """Check if the extracted text is garbled or unusable."""
+        import re
+        
+        # Check for common garbled text indicators
+        garbled_indicators = [
+            r'<0a>',  # HTML-like artifacts
+            r'<[0-9a-f]{2}>',  # Hex codes
+            r'Internal Error:',  # Error messages
+            r'Cannot handle URI',  # URI errors
+            r'[A-Za-z]{20,}',  # Very long words (likely encoding issues)
+            r'[^\x00-\x7F]{10,}',  # Too many non-ASCII characters
+        ]
+        
+        for pattern in garbled_indicators:
+            if re.search(pattern, text):
+                return True
+        
+        # Check if text has too many special characters
+        special_char_ratio = len(re.findall(r'[^\w\s]', text)) / len(text) if text else 0
+        if special_char_ratio > 0.3:  # More than 30% special characters
+            return True
+        
+        # Check if text has too many consecutive non-alphanumeric characters
+        if re.search(r'[^\w\s]{5,}', text):
+            return True
+        
+        return False
     
     def _is_line_item_component(self, line: str) -> bool:
         """Check if a line is likely part of a line item."""
