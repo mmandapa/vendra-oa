@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class Invoice2DataParser:
     """
-    Parser using invoice2data library for extracting structured data from invoices and quotes.
+    Parser using invoice2data library for extracting data from invoices and quotes.
     """
     
     def __init__(self):
@@ -79,7 +79,7 @@ class Invoice2DataParser:
                     extracted_data = extract_data(pdf_path, input_module=pdftotext)
                 
                 if extracted_data:
-                    logger.info("📄 invoice2data extracted structured data")
+                    logger.info("📄 invoice2data extracted data")
                     # Convert to our format
                     return self._convert_invoice2data_result(extracted_data)
                 else:

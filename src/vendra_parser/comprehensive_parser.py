@@ -156,7 +156,7 @@ class ComprehensivePDFParser:
                     extracted_data = extract_data(pdf_path, input_module=pdftotext)
                 
                 if extracted_data:
-                    logger.info("📄 invoice2data extracted structured data")
+                    logger.info("📄 invoice2data extracted data")
                     # Convert to our format
                     return self._convert_invoice2data_result(extracted_data)
                 else:

@@ -72,7 +72,7 @@ def print_header():
     header_text.append("VENDRA QUOTE PARSER", style="bold white on blue")
     header_text.append(" 🎯", style="bold blue")
     
-    subtitle = Text("Extract structured data from supplier PDFs with intelligent parsing", style="italic cyan")
+    subtitle = Text("Extract data from supplier PDFs with intelligent parsing", style="italic cyan")
     
     panel = Panel(
         Align.center(header_text + "\n" + subtitle),
@@ -370,7 +370,7 @@ def cli(ctx, verbose: bool, quiet: bool):
     """
     🎯 VENDRA QUOTE PARSER
     
-    Extract structured data from supplier PDF quotes with automatic currency detection.
+    Extract data from supplier PDF quotes with automatic currency detection.
     
     Examples:
         vendra-parser parse quote.pdf
@@ -391,7 +391,7 @@ def cli(ctx, verbose: bool, quiet: bool):
 @click.option('--summary-only', '-s', is_flag=True, help='Show only summary, not full JSON')
 @click.option('--quiet', '-q', is_flag=True, help='Run in headless mode (suppress all output except results)')
 def parse(pdf_path: str, output: Optional[str], verbose: bool, summary_only: bool, quiet: bool):
-    """Parse a PDF quote and extract structured data."""
+    """Parse a PDF quote and extract data."""
     if not quiet:
         print_header()
     
