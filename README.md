@@ -2,40 +2,48 @@
 
 ## How Different Quote Formats Are Handled
 
-The parser employs a multi-layered approach to handle various quote formats:
+The parser implements a multi-layered extraction approach with several specialized parsers:
 
-**Multi-Format PDF Processing**: Uses multiple libraries (pdfplumber, PyMuPDF, OCR) to extract text from different PDF types - table-based documents, text-based documents, and scanned images.
+**ComprehensivePDFParser**: The main entry point that orchestrates multiple extraction methods. It automatically detects CID font encoding issues and reorders extraction methods accordingly - prioritizing OCR for problematic PDFs.
 
-**Adaptive Pattern Matching**: Implements comprehensive regex patterns that detect various price formats ($1,234.56, 1,234.56 €, 1234.56), quantity indicators (Qty: 12, 5 pieces, 3 units), and line item structures.
+**Multi-Format PDF Processing**: Uses pdfplumber for table-based documents, PyMuPDF for text-based documents, and OCR (Tesseract) for scanned images. Each method is tried in sequence until a successful extraction occurs.
 
-**Intelligent Content Filtering**: Filters out non-inventory content like phone numbers, addresses, and metadata while preserving relevant line items using domain-specific patterns for manufacturing components.
+**Dynamic OCR Parser**: A sophisticated OCR-based parser that makes no assumptions about structure. It uses multiple OCR approaches (direct PDF extraction, enhanced OCR with custom settings, and external tools) and chooses the best result based on quality scoring.
 
-**Dynamic Line Item Discovery**: Uses machine learning-based classification to identify line items from unstructured text, with confidence scoring to determine if text represents actual inventory items.
+**Invoice2Data Parser**: Leverages the invoice2data library for structured invoice/quote extraction with template matching capabilities.
+
+**Adaptive Parser**: Implements robust pattern matching with fallback strategies, including domain-specific knowledge for manufacturing components.
 
 ## Assumptions and Fallbacks Used
 
 **Core Assumptions**:
-- Quotes contain structured or semi-structured pricing data
-- Prices are in decimal format with currency symbols
-- Quantities are whole numbers or simple fractions
-- Line items have descriptions, quantities, and unit prices
+- PDFs contain extractable text (either native or via OCR)
+- Quotes have some structured pricing data (quantities, unit prices, totals)
+- Line items have descriptions that can be identified from surrounding text
+- Currency symbols or codes are present in the document
 
 **Fallback Strategies**:
-- **Missing Quantity**: Defaults to quantity of 1 if not detected
-- **Invalid Prices**: Sets price to 0.00 and logs warnings
-- **No Line Items**: Creates basic "TOTAL" line item with extracted summary data
-- **Multiple Extraction Methods**: If one method fails, tries alternative approaches (pdfplumber → PyMuPDF → OCR)
-- **Pattern Degradation**: Falls back to simpler patterns if complex regex fails
-- **Domain Knowledge**: Uses manufacturing-specific keywords and patterns when general extraction fails
+- **Multiple Extraction Methods**: If one parser fails, automatically tries the next (invoice2data → multi-format → OCR)
+- **CID Issue Detection**: Automatically detects and handles PDFs with font encoding problems by prioritizing OCR
+- **Quality Scoring**: Each extraction result is scored based on number of line items, total cost, and data completeness
+- **Pattern Degradation**: Falls back to simpler regex patterns if complex patterns fail
+- **Noise Filtering**: Removes non-inventory content like addresses, phone numbers, and metadata
+- **Currency Detection**: Automatically detects currency from text and applies appropriate formatting
 
 **Error Handling**:
 - Graceful handling of malformed PDFs with empty result structures
 - Comprehensive logging for debugging extraction issues
 - Validation of extracted data before returning results
+- Default values for missing quantities (defaults to 1) and invalid prices (defaults to 0.00)
 
 ## Ideas for Improving Accuracy and Reliability
 
-**Machine Learning Enhancements**:
+**Enhanced OCR Capabilities**:
+- Implement table structure detection for complex layouts
+- Add support for handwritten text recognition
+- Improve OCR accuracy with custom training data for manufacturing documents
+
+**Machine Learning Integration**:
 - Train custom models on historical quote data to improve line item classification
 - Implement confidence scoring for all extracted fields
 - Use NLP techniques to better understand context and relationships between data
@@ -44,11 +52,6 @@ The parser employs a multi-layered approach to handle various quote formats:
 - Create format-specific templates for common supplier quote layouts
 - Implement template matching to automatically detect quote format
 - Build a template library that can be easily extended for new suppliers
-
-**Advanced OCR Improvements**:
-- Implement table structure detection for complex layouts
-- Use computer vision to identify and extract data from images
-- Add support for handwritten text recognition
 
 **Validation and Quality Assurance**:
 - Add business logic validation (e.g., total should equal sum of line items)
