@@ -1,4 +1,4 @@
-# Vendra Quote Parser
+# Vendra Quote Parser (SET UP INSTRUCTIONS IN SETUP.MD)
 
 ## How Different Quote Formats Are Handled
 
